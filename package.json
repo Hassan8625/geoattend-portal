@@ -1,0 +1,29 @@
+{
+  "name": "geolocation-attendance-system",
+  "version": "1.0.0",
+  "description": "Tamper-proof Geolocation & Geofencing Attendance Portal for Companies & Remote Sites",
+  "main": "server/server.js",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js",
+    "test": "node test/verify_api.js"
+  },
+  "keywords": [
+    "geolocation",
+    "attendance",
+    "geofencing",
+    "pwa",
+    "haversine"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^12.6.2",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "open-location-code": "^1.0.3"
+  }
+}
