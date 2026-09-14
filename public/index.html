@@ -1,0 +1,989 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>GeoAttend Pro — Smart Geofence Attendance Portal</title>
+  <meta name="description" content="Tamper-proof Geolocation and Geofencing Attendance Portal with Live GPS Verification, Server-side Anti-spoofing, and Executive CEO Dashboard.">
+  
+  <!-- Google Fonts: Plus Jakarta Sans, Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+
+  <!-- Leaflet CSS for Maps -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+
+  <!-- Custom Design System CSS -->
+  <link rel="stylesheet" href="css/styles.css">
+
+  <!-- Instant Theme Hydration to prevent flicker -->
+  <script>
+    (function() {
+      try {
+        const theme = localStorage.getItem('geoattend_theme');
+        if (theme === 'light') {
+          document.documentElement.classList.add('light-theme');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body class="dark-theme">
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loading-text">Verifying GPS & Security Tokens...</div>
+  </div>
+
+  <!-- Navigation Bar -->
+  <header class="app-header">
+    <div class="header-container">
+      <div class="brand">
+        <div class="brand-icon">
+          <i class="fa-solid fa-location-dot"></i>
+          <span class="radar-ping"></span>
+        </div>
+        <div class="brand-text">
+          <h1>GeoAttend <span class="gradient-text">PRO</span></h1>
+          <span class="brand-tagline">Enterprise Geofenced Presence Portal</span>
+        </div>
+      </div>
+
+      <div class="header-actions" id="nav-actions">
+        <!-- Theme Mode Toggle (Light/Dark) -->
+        <button id="theme-toggle-btn" class="theme-toggle-btn" onclick="toggleTheme()" title="Switch to Light Mode" aria-label="Toggle Dark/Light Mode">
+          <i class="fa-solid fa-moon theme-icon-dark"></i>
+          <i class="fa-solid fa-sun theme-icon-light"></i>
+        </button>
+
+        <!-- Dynamic User Status & Logout -->
+        <div id="user-nav-profile" class="user-nav-profile hidden">
+          <div class="user-badge-group">
+            <div class="avatar-ring">
+              <span id="nav-user-initials">AV</span>
+            </div>
+            <div class="nav-user-info">
+              <span id="nav-user-name" class="nav-user-name">Arthur Vance</span>
+              <span id="nav-user-role" class="nav-user-role badge-admin">CEO / Admin</span>
+            </div>
+          </div>
+          <button id="btn-logout" class="btn btn-icon btn-ghost" title="Log Out">
+            <i class="fa-solid fa-arrow-right-from-bracket"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Container -->
+  <main class="main-content">
+
+    <!-- ==================== AUTH VIEW (LOGIN & REGISTER) ==================== -->
+    <section id="view-auth" class="view-section active">
+      <div class="auth-wrapper">
+        <div class="auth-card glass-panel">
+          
+          <div class="auth-header">
+            <div class="auth-logo-badge">
+              <i class="fa-solid fa-satellite-dish"></i>
+            </div>
+            <h2>Secure Workplace Access</h2>
+            <p>Verify your physical location to mark instant, tamper-proof attendance.</p>
+          </div>
+
+          <!-- Tab Selector -->
+          <div class="auth-tabs">
+            <button id="tab-login" class="auth-tab active" onclick="switchAuthTab('login')">
+              <i class="fa-solid fa-lock"></i> Sign In
+            </button>
+            <button id="tab-register" class="auth-tab" onclick="switchAuthTab('register')">
+              <i class="fa-solid fa-user-plus"></i> Employee Register
+            </button>
+          </div>
+
+          <!-- LOGIN FORM -->
+          <form id="form-login" class="auth-form" onsubmit="handleLogin(event)">
+            <div class="form-group">
+              <label for="login-identifier"><i class="fa-solid fa-user"></i> Email, Employee Code, or Full Name</label>
+              <input type="text" id="login-identifier" placeholder="e.g. 36963, hassan128c@gmail.com, or Hassan Afzal" required autocomplete="username">
+            </div>
+
+            <div class="form-group">
+              <label for="login-password"><i class="fa-solid fa-key"></i> Password</label>
+              <div class="password-input-wrap">
+                <input type="password" id="login-password" placeholder="••••••••" required autocomplete="current-password">
+                <button type="button" class="btn-toggle-pwd" onclick="togglePasswordVisibility('login-password')">
+                  <i class="fa-regular fa-eye"></i>
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg glow-btn">
+              <span>Sign In to Portal</span>
+              <i class="fa-solid fa-arrow-right"></i>
+            </button>
+
+            <!-- Quick Demo Credentials Selector -->
+            <div class="demo-logins-box">
+              <div class="demo-box-title">
+                <i class="fa-solid fa-bolt"></i> One-Click Demo Accounts:
+              </div>
+              <div class="demo-pills">
+                <button type="button" class="demo-pill admin-pill" onclick="quickFillLogin('admin@company.com', 'admin123')">
+                  <i class="fa-solid fa-crown"></i> CEO / Admin
+                </button>
+                <button type="button" class="demo-pill emp-pill" onclick="quickFillLogin('sarah@company.com', 'employee123')">
+                  <i class="fa-solid fa-user"></i> Sarah (EMP-101)
+                </button>
+                <button type="button" class="demo-pill emp-pill" onclick="quickFillLogin('michael@company.com', 'employee123')">
+                  <i class="fa-solid fa-user"></i> Michael (EMP-102)
+                </button>
+              </div>
+            </div>
+          </form>
+
+          <!-- REGISTER FORM -->
+          <form id="form-register" class="auth-form hidden" onsubmit="handleRegister(event)">
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="reg-name"><i class="fa-solid fa-user-tag"></i> Full Name</label>
+                <input type="text" id="reg-name" placeholder="John Doe" required>
+              </div>
+              <div class="form-group">
+                <label for="reg-code"><i class="fa-solid fa-id-badge"></i> Employee Code</label>
+                <input type="text" id="reg-code" placeholder="EMP-104" required>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-email"><i class="fa-solid fa-envelope"></i> Company Email</label>
+              <input type="email" id="reg-email" placeholder="john@company.com" required>
+            </div>
+
+            <div class="form-grid-2">
+              <div class="form-group">
+                <label for="reg-dept"><i class="fa-solid fa-building"></i> Department</label>
+                <input type="text" id="reg-dept" placeholder="Engineering, Sales, etc.">
+              </div>
+              <div class="form-group">
+                <label for="reg-phone"><i class="fa-solid fa-phone"></i> Phone Number</label>
+                <input type="tel" id="reg-phone" placeholder="+1-555-0199">
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-location"><i class="fa-solid fa-map-pin"></i> Assigned Office Site</label>
+              <select id="reg-location">
+                <option value="">🏢 Assign Later by Admin / Primary HQ</option>
+              </select>
+              <small class="text-muted" style="font-size: 0.76rem; margin-top: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
+                <i class="fa-solid fa-circle-info"></i> Select your workplace now, or the CEO / Admin can assign your site later.
+              </small>
+            </div>
+
+            <div class="form-group">
+              <label for="reg-password"><i class="fa-solid fa-lock"></i> Create Password</label>
+              <input type="password" id="reg-password" placeholder="Minimum 6 characters" minlength="6" required>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-block btn-lg glow-btn">
+              <span>Create Employee Account</span>
+              <i class="fa-solid fa-check"></i>
+            </button>
+          </form>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== EMPLOYEE PORTAL VIEW ==================== -->
+    <section id="view-employee" class="view-section">
+      <div class="portal-layout">
+        
+        <!-- Mobile Header Bar -->
+        <div class="portal-welcome-banner glass-panel">
+          <div class="welcome-text">
+            <h2>Good Day, <span id="emp-welcome-name">Employee</span>! 👋</h2>
+            <p id="emp-site-info">Assigned Workplace: <strong id="emp-assigned-site-name">Loading...</strong></p>
+          </div>
+          <div class="clock-card">
+            <div id="live-digital-clock" class="digital-clock">09:00:00 AM</div>
+            <div id="live-digital-date" class="digital-date">Monday, Sep 14</div>
+          </div>
+        </div>
+
+        <!-- Simulation / Testing Banner (Great for testing on PC / Demonstrating) -->
+        <div class="sim-banner glass-panel">
+          <div class="sim-banner-header">
+            <div class="sim-label">
+              <i class="fa-solid fa-wand-magic-sparkles"></i>
+              <span>GPS Testing & Simulation Mode</span>
+            </div>
+            <div class="toggle-switch">
+              <input type="checkbox" id="toggle-sim-mode" onchange="toggleSimulationMode(this.checked)">
+              <label for="toggle-sim-mode" title="Toggle between real device GPS and manual coordinate testing"></label>
+            </div>
+          </div>
+          <div id="sim-controls" class="sim-controls hidden">
+            <p class="sim-hint">Simulate employee location to test geofencing boundaries instantly:</p>
+            <div class="sim-buttons-row">
+              <button type="button" class="btn btn-sm btn-outline-success" onclick="simulateLocation('INSIDE')">
+                <i class="fa-solid fa-circle-check"></i> Simulate Inside Office (15m)
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="simulateLocation('OUTSIDE')">
+                <i class="fa-solid fa-circle-xmark"></i> Simulate Far Away (1.5km)
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="simulateLocation('PERIMETER')">
+                <i class="fa-solid fa-bullseye"></i> Simulate Near Boundary (85m)
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Geofence Radar Card -->
+        <div class="radar-card glass-panel">
+          <div class="radar-status-top">
+            <div class="radar-chip" id="radar-status-chip">
+              <span class="status-indicator-dot pulse"></span>
+              <span id="radar-status-text">Acquiring GPS Signal...</span>
+            </div>
+            <button class="btn btn-sm btn-ghost" onclick="refreshGPSLocation(true)" title="Force GPS Refresh">
+              <i class="fa-solid fa-arrows-rotate"></i> Refresh GPS
+            </button>
+          </div>
+
+          <!-- Visual Animated Radar -->
+          <div class="radar-visual-wrap">
+            <div class="radar-circle circle-3"></div>
+            <div class="radar-circle circle-2"></div>
+            <div class="radar-circle circle-1"></div>
+            <div class="radar-sweep"></div>
+            
+            <div class="radar-center-icon">
+              <i class="fa-solid fa-location-crosshairs"></i>
+            </div>
+
+            <!-- Distance Big readout in center -->
+            <div class="radar-distance-overlay">
+              <div class="distance-number" id="radar-distance-meters">--</div>
+              <div class="distance-unit">meters away</div>
+              <div class="geofence-badge-pill" id="radar-boundary-badge">CHECKING RANGE</div>
+            </div>
+          </div>
+
+          <!-- GPS Metadata Chips -->
+          <div class="gps-meta-bar">
+            <div class="gps-meta-item">
+              <i class="fa-solid fa-bullseye"></i>
+              <span>Accuracy: <strong id="gps-accuracy-readout">-- m</strong></span>
+            </div>
+            <div class="gps-meta-item">
+              <i class="fa-solid fa-circle-dot"></i>
+              <span>Office Radius: <strong id="gps-radius-readout">100 m</strong></span>
+            </div>
+            <div class="gps-meta-item">
+              <i class="fa-solid fa-shield-halved"></i>
+              <span>Anti-Spoofing: <strong class="text-success">Active</strong></span>
+            </div>
+          </div>
+
+          <!-- Big Action Button (Mark Attendance) -->
+          <div class="attendance-action-section">
+            <div id="attendance-status-alert" class="attendance-alert-box hidden">
+              <!-- Message dynamically inserted -->
+            </div>
+
+            <div class="action-buttons-wrap">
+              <button id="btn-mark-attendance" class="btn btn-primary btn-checkin glow-btn" onclick="submitAttendanceCheckIn()">
+                <div class="btn-checkin-content">
+                  <i class="fa-solid fa-fingerprint"></i>
+                  <div class="btn-checkin-text">
+                    <span class="btn-title">MARK PRESENT</span>
+                    <span class="btn-subtitle" id="btn-checkin-sub">Verify GPS & Register Check-In</span>
+                  </div>
+                </div>
+              </button>
+
+              <button id="btn-mark-checkout" class="btn btn-outline-secondary btn-checkout hidden" onclick="submitAttendanceCheckOut()">
+                <i class="fa-solid fa-right-from-bracket"></i>
+                <span>Check Out for Today</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Interactive Mini-Map -->
+        <div class="map-card glass-panel">
+          <div class="card-title-bar">
+            <h3><i class="fa-solid fa-map-location-dot"></i> Live Geofence Map</h3>
+            <span class="badge badge-neutral" id="map-coord-pill">Lat: --, Lng: --</span>
+          </div>
+          <div id="employee-map" class="interactive-map"></div>
+          <div class="map-legend">
+            <div class="legend-item"><span class="legend-dot dot-office"></span> Office Geofence</div>
+            <div class="legend-item"><span class="legend-dot dot-user"></span> Your Live GPS</div>
+            <div class="legend-item"><span class="legend-line"></span> Direct Distance Line</div>
+          </div>
+        </div>
+
+        <!-- Employee Personal Attendance History -->
+        <div class="history-card glass-panel">
+          <div class="card-title-bar">
+            <h3><i class="fa-solid fa-clock-rotate-left"></i> My Attendance History</h3>
+            <button class="btn btn-sm btn-ghost" onclick="loadEmployeeHistory()">
+              <i class="fa-solid fa-arrows-rotate"></i>
+            </button>
+          </div>
+          <div class="history-table-wrap">
+            <table class="data-table" id="emp-history-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Time (Server Verified)</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Distance</th>
+                  <th>Site</th>
+                </tr>
+              </thead>
+              <tbody id="emp-history-tbody">
+                <tr>
+                  <td colspan="6" class="text-center text-muted">Loading your attendance records...</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- ==================== CEO / ADMIN DASHBOARD VIEW ==================== -->
+    <section id="view-admin" class="view-section">
+      <div class="admin-layout">
+        
+        <!-- CEO Header & Executive Stats -->
+        <div class="admin-header-row">
+          <div class="admin-title">
+            <h2>CEO Executive Attendance Dashboard</h2>
+            <p>Real-time presence monitoring, GPS geofencing perimeter controls, and tamper-proof logs.</p>
+          </div>
+          <div class="admin-header-controls">
+            <button class="btn btn-primary glow-btn" onclick="exportAttendanceCSV()">
+              <i class="fa-solid fa-file-excel"></i> Export Payroll CSV
+            </button>
+            <button class="btn btn-outline-secondary" onclick="loadAdminDashboardData()">
+              <i class="fa-solid fa-arrows-rotate"></i> Refresh
+            </button>
+          </div>
+        </div>
+
+        <!-- KPI Metric Cards -->
+        <div class="kpi-grid">
+          <div class="kpi-card glass-panel">
+            <div class="kpi-icon-wrap bg-blue-subtle">
+              <i class="fa-solid fa-users"></i>
+            </div>
+            <div class="kpi-content">
+              <span class="kpi-label">Total Active Staff</span>
+              <div class="kpi-value" id="kpi-total-staff">0</div>
+              <span class="kpi-sub" id="kpi-staff-sub">Registered in system</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel">
+            <div class="kpi-icon-wrap bg-green-subtle">
+              <i class="fa-solid fa-user-check"></i>
+            </div>
+            <div class="kpi-content">
+              <span class="kpi-label">Present Today</span>
+              <div class="kpi-value text-success" id="kpi-present-today">0</div>
+              <span class="kpi-sub" id="kpi-present-percent">0% attendance rate</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel">
+            <div class="kpi-icon-wrap bg-orange-subtle">
+              <i class="fa-solid fa-clock"></i>
+            </div>
+            <div class="kpi-content">
+              <span class="kpi-label">Late Check-Ins</span>
+              <div class="kpi-value text-warning" id="kpi-late-today">0</div>
+              <span class="kpi-sub">Arrived past grace period</span>
+            </div>
+          </div>
+
+          <div class="kpi-card glass-panel">
+            <div class="kpi-icon-wrap bg-red-subtle">
+              <i class="fa-solid fa-shield-halved"></i>
+            </div>
+            <div class="kpi-content">
+              <span class="kpi-label">Out-of-Bounds Rejections</span>
+              <div class="kpi-value text-danger" id="kpi-rejected-today">0</div>
+              <span class="kpi-sub">Attempted check-in off-site</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Admin Navigation Tabs -->
+        <div class="admin-nav-tabs-wrapper">
+          <div class="admin-nav-tabs">
+            <button class="admin-tab active" id="tab-btn-logs" onclick="switchAdminTab('logs')">
+              <i class="fa-solid fa-list-check"></i> Attendance Logs
+            </button>
+            <button class="admin-tab" id="tab-btn-geofence" onclick="switchAdminTab('geofence')">
+              <i class="fa-solid fa-location-crosshairs"></i> Geofence & Office Locations
+            </button>
+            <button class="admin-tab" id="tab-btn-employees" onclick="switchAdminTab('employees')">
+              <i class="fa-solid fa-id-card-clip"></i> Employee Directory
+            </button>
+            <button class="admin-tab" id="tab-btn-settings" onclick="switchAdminTab('settings')">
+              <i class="fa-solid fa-sliders"></i> Company Policies
+            </button>
+          </div>
+        </div>
+
+        <!-- ==================== TAB 1: ATTENDANCE LOGS ==================== -->
+        <div id="admin-subtab-logs" class="admin-subtab-content active">
+          <div class="glass-panel logs-panel">
+            
+            <!-- Filters Toolbar -->
+            <div class="filters-toolbar">
+              <div class="filter-item">
+                <label for="filter-date">Date:</label>
+                <input type="date" id="filter-date" onchange="loadAdminAttendanceLogs()">
+              </div>
+              <div class="filter-item">
+                <label for="filter-status">Status:</label>
+                <select id="filter-status" onchange="loadAdminAttendanceLogs()">
+                  <option value="ALL">All Statuses</option>
+                  <option value="PRESENT">Present (On-Time)</option>
+                  <option value="LATE">Late</option>
+                  <option value="OUT_OF_BOUNDS_REJECTED">Out of Bounds (Rejected)</option>
+                </select>
+              </div>
+              <div class="filter-item filter-search">
+                <label for="filter-search">Search Employee:</label>
+                <div class="search-input-wrap">
+                  <i class="fa-solid fa-magnifying-glass"></i>
+                  <input type="text" id="filter-search" placeholder="Name, Code, Dept..." onkeyup="debounceSearch()">
+                </div>
+              </div>
+              <div class="filter-actions">
+                <button class="btn btn-sm btn-outline-secondary" onclick="resetFilters()">Reset</button>
+              </div>
+            </div>
+
+            <!-- Attendance Table -->
+            <div class="table-responsive">
+              <table class="data-table" id="admin-attendance-table">
+                <thead>
+                  <tr>
+                    <th>Emp Code</th>
+                    <th>Employee Name</th>
+                    <th>Department</th>
+                    <th>Verified Timestamp</th>
+                    <th>Check Type</th>
+                    <th>Status</th>
+                    <th>Site Center Distance</th>
+                    <th>GPS Accuracy</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-attendance-tbody">
+                  <tr>
+                    <td colspan="9" class="text-center text-muted">Loading attendance logs...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ==================== TAB 2: GEOFENCE & LOCATIONS ==================== -->
+        <div id="admin-subtab-geofence" class="admin-subtab-content hidden">
+          <div class="geofence-editor-grid">
+            
+            <!-- Location List & Add Form -->
+            <div class="glass-panel location-sidebar">
+              <div class="card-title-bar">
+                <h3><i class="fa-solid fa-map-pin"></i> Registered Locations</h3>
+                <button class="btn btn-sm btn-primary" onclick="openCreateLocationModal()">
+                  <i class="fa-solid fa-plus"></i> Add Site
+                </button>
+              </div>
+
+              <div id="locations-list" class="locations-list">
+                <!-- Dynamically populated -->
+              </div>
+            </div>
+
+            <!-- Interactive Geofence Map Editor -->
+            <div class="glass-panel location-map-panel">
+              <div class="card-title-bar">
+                <h3><i class="fa-solid fa-earth-americas"></i> Interactive Perimeter Map</h3>
+                <span class="text-muted text-sm"><i class="fa-solid fa-info-circle"></i> Drag pin, click map, or search address/Plus Code below</span>
+              </div>
+
+              <!-- Quick Plus Code / Google Maps / Address Search -->
+              <div class="search-code-bar" style="display:flex; gap:0.5rem; margin-bottom:0.75rem;">
+                <div class="search-input-wrap" style="flex:1;">
+                  <i class="fa-solid fa-magnifying-glass-location"></i>
+                  <input type="text" id="geofence-search-input" placeholder="Paste Google Plus Code (e.g. H83C+2VM, Lahore), Maps URL, or Address..." onkeydown="if(event.key==='Enter'){event.preventDefault();searchAndLocatePlace();}">
+                </div>
+                <button type="button" class="btn btn-sm btn-primary" onclick="searchAndLocatePlace()">
+                  <i class="fa-solid fa-location-crosshairs"></i> Locate Place
+                </button>
+              </div>
+
+              <div id="admin-geofence-map" class="interactive-map"></div>
+
+              <!-- Live Radius & Coordinates Tweaker Bar -->
+              <div class="geofence-tweak-bar" id="geofence-tweak-bar">
+                <div class="tweak-item">
+                  <label for="tweak-site-name">Active Site:</label>
+                  <strong id="tweak-site-name-display">Main HQ</strong>
+                </div>
+                <div class="tweak-item">
+                  <label for="tweak-radius-slider">Perimeter Radius: <strong id="tweak-radius-val">100m</strong></label>
+                  <input type="range" id="tweak-radius-slider" min="20" max="1000" step="10" value="100" oninput="handleRadiusSliderChange(this.value)">
+                </div>
+                <div class="radius-presets-group">
+                  <button type="button" class="preset-pill" onclick="setRadiusPreset(50)">50m</button>
+                  <button type="button" class="preset-pill active" onclick="setRadiusPreset(100)">100m</button>
+                  <button type="button" class="preset-pill" onclick="setRadiusPreset(200)">200m</button>
+                  <button type="button" class="preset-pill" onclick="setRadiusPreset(500)">500m</button>
+                </div>
+                <div class="tweak-actions">
+                  <button class="btn btn-sm btn-success glow-btn" onclick="saveActiveGeofenceChanges()">
+                    <i class="fa-solid fa-floppy-disk"></i> Save Perimeter
+                  </button>
+                  <button class="btn btn-sm btn-outline-info" onclick="setCurrentAdminLocationAsOffice()">
+                    <i class="fa-solid fa-crosshairs"></i> Pin My Current GPS Here
+                  </button>
+                </div>
+              </div>
+
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ==================== TAB 3: EMPLOYEE DIRECTORY ==================== -->
+        <div id="admin-subtab-employees" class="admin-subtab-content hidden">
+          <div class="glass-panel directory-panel">
+            <div class="card-title-bar">
+              <div class="title-with-badge">
+                <h3><i class="fa-solid fa-users-gear"></i> Company Staff Directory</h3>
+                <span class="badge-count">30+ Members</span>
+              </div>
+              <button class="btn btn-sm btn-primary" onclick="openAddEmployeeModal()">
+                <i class="fa-solid fa-user-plus"></i> New Employee
+              </button>
+            </div>
+
+            <div class="table-responsive">
+              <table class="data-table" id="admin-employees-table">
+                <thead>
+                  <tr>
+                    <th>Emp Code</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Department</th>
+                    <th>Assigned Site</th>
+                    <th style="text-align: center;">Check-Ins</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="admin-employees-tbody">
+                  <tr>
+                    <td colspan="9" class="text-center text-muted">Loading employee directory...</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ==================== TAB 4: SYSTEM SETTINGS ==================== -->
+        <div id="admin-subtab-settings" class="admin-subtab-content hidden">
+          <form id="form-settings" class="settings-layout-grid" onsubmit="saveCompanySettings(event)">
+            
+            <!-- Card 1: Shift Schedule & Grace Rules -->
+            <div class="glass-panel policy-card">
+              <div class="policy-card-header">
+                <div class="header-icon-box bg-indigo-subtle">
+                  <i class="fa-solid fa-business-time"></i>
+                </div>
+                <div>
+                  <h3>Shift Schedule & Grace Rules</h3>
+                  <p class="text-muted text-sm">Define official workplace arrival window and automated late flags.</p>
+                </div>
+              </div>
+
+              <!-- Visual Shift Timeline -->
+              <div class="shift-timeline-box">
+                <div class="timeline-labels">
+                  <span><i class="fa-solid fa-play text-success"></i> Shift Start: <strong id="timeline-start-label">09:00 AM</strong></span>
+                  <span><i class="fa-solid fa-hourglass-half text-warning"></i> Grace Limit: <strong id="timeline-grace-label">09:15 AM</strong></span>
+                  <span><i class="fa-solid fa-flag-checkered text-info"></i> End: <strong id="timeline-end-label">06:00 PM</strong></span>
+                </div>
+                <div class="timeline-bar">
+                  <div class="timeline-segment segment-ontime" title="On-Time Arrival (Present)">
+                    <span>On-Time Window</span>
+                  </div>
+                  <div class="timeline-segment segment-grace" title="Grace Period (Present)">
+                    <span id="timeline-grace-text">15m Grace</span>
+                  </div>
+                  <div class="timeline-segment segment-late" title="Tagged Late">
+                    <span>Late Arrival Window</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-grid-2">
+                <div class="form-group">
+                  <label for="set-start-time">
+                    <span class="label-icon-badge bg-green-subtle"><i class="fa-solid fa-clock"></i></span>
+                    Official Shift Start
+                  </label>
+                  <input type="time" id="set-start-time" required onchange="updateShiftTimelineVisuals()">
+                </div>
+
+                <div class="form-group">
+                  <label for="set-checkout-time">
+                    <span class="label-icon-badge bg-blue-subtle"><i class="fa-solid fa-door-open"></i></span>
+                    Standard End of Day
+                  </label>
+                  <input type="time" id="set-checkout-time" onchange="updateShiftTimelineVisuals()">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <div class="label-flex-between">
+                  <label for="set-grace-minutes">
+                    <span class="label-icon-badge bg-orange-subtle"><i class="fa-solid fa-hourglass-half"></i></span>
+                    Late Grace Period
+                  </label>
+                  <span class="badge-pill-val" id="grace-val-badge">15 Minutes</span>
+                </div>
+                <div class="range-stepper-wrap">
+                  <input type="range" id="set-grace-minutes" min="0" max="60" step="5" value="15" oninput="handleGraceSliderChange(this.value)">
+                </div>
+                <small class="helper-text"><i class="fa-solid fa-circle-info"></i> Check-ins submitted after Start Time + Grace Period are automatically tagged as <b>LATE</b>.</small>
+              </div>
+
+              <div class="policy-actions-footer">
+                <button type="submit" class="btn btn-primary btn-lg glow-btn">
+                  <i class="fa-solid fa-floppy-disk"></i>
+                  <span>Save Attendance Policies</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- Card 2: Company Information & Geofence Policy -->
+            <div class="glass-panel policy-card">
+              <div class="policy-card-header">
+                <div class="header-icon-box bg-cyan-subtle">
+                  <i class="fa-solid fa-building-shield"></i>
+                </div>
+                <div>
+                  <h3>Organization & Security Rules</h3>
+                  <p class="text-muted text-sm">Company identity, server timestamping, and geofence enforcement.</p>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label for="set-company-name">
+                  <span class="label-icon-badge bg-indigo-subtle"><i class="fa-solid fa-building"></i></span>
+                  Company / Organization Name
+                </label>
+                <input type="text" id="set-company-name" placeholder="e.g. Enterprise Solutions Ltd" required>
+              </div>
+
+              <div class="policy-feature-list">
+                <div class="policy-feature-item">
+                  <div class="feature-icon bg-green-subtle">
+                    <i class="fa-solid fa-lock"></i>
+                  </div>
+                  <div class="feature-info">
+                    <strong>Server-Side Master Timestamp</strong>
+                    <p>Device clock spoofing is permanently blocked; timestamps are generated strictly by the backend server clock.</p>
+                  </div>
+                  <span class="status-pill-badge active">ENFORCED</span>
+                </div>
+
+                <div class="policy-feature-item">
+                  <div class="feature-icon bg-blue-subtle">
+                    <i class="fa-solid fa-satellite"></i>
+                  </div>
+                  <div class="feature-info">
+                    <strong>Hardware GPS Precision Filter</strong>
+                    <p>Rejects cell-tower or coarse Wi-Fi triangulation when accuracy exceeds 200 meters.</p>
+                  </div>
+                  <span class="status-pill-badge active">ACTIVE</span>
+                </div>
+
+                <div class="policy-feature-item">
+                  <div class="feature-icon bg-red-subtle">
+                    <i class="fa-solid fa-shield-halved"></i>
+                  </div>
+                  <div class="feature-info">
+                    <strong>Out-of-Bounds Auto Audit</strong>
+                    <p>Check-in attempts made outside the geofence boundary are automatically logged for the CEO to inspect.</p>
+                  </div>
+                  <span class="status-pill-badge active">AUDITED</span>
+                </div>
+              </div>
+
+              <div class="registered-site-shortcut" onclick="switchAdminTab('geofence')">
+                <div class="site-shortcut-left">
+                  <i class="fa-solid fa-map-location-dot"></i>
+                  <div>
+                    <strong>Primary Office Geofence</strong>
+                    <span id="policy-active-site-label">Main Workplace - Jinnah Town, Lahore</span>
+                  </div>
+                </div>
+                <i class="fa-solid fa-chevron-right"></i>
+              </div>
+
+            </div>
+
+          </form>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== MODALS ==================== -->
+
+  <!-- Modal: View GPS Check-In on Map -->
+  <div id="modal-map-view" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-map-title"><i class="fa-solid fa-location-dot"></i> Check-In Location Inspection</h3>
+        <button class="btn-close" onclick="closeMapInspectionModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="inspection-map" class="modal-map"></div>
+        <div class="inspection-details" id="inspection-details-content">
+          <!-- Details injected dynamically -->
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Add / Edit Geofence Location (With Interactive Map Picker) -->
+  <div id="modal-location-form" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel modal-lg">
+      <div class="modal-header">
+        <h3 id="modal-location-title"><i class="fa-solid fa-map-location-dot"></i> Add Workplace Location</h3>
+        <button class="btn-close" onclick="closeLocationModal()">&times;</button>
+      </div>
+      <form id="form-location" onsubmit="handleLocationSubmit(event)">
+        <input type="hidden" id="loc-edit-id">
+        <div class="modal-body">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="loc-name"><i class="fa-solid fa-building"></i> Location / Branch Name</label>
+              <input type="text" id="loc-name" placeholder="e.g. Masjid or Downtown Office" required>
+            </div>
+            <div class="form-group">
+              <label for="loc-address"><i class="fa-solid fa-location-dot"></i> Physical Address</label>
+              <input type="text" id="loc-address" placeholder="e.g. Block C PGECHS 2, Lahore, Pakistan" onblur="checkAddressForAutoLocate(this.value)">
+            </div>
+          </div>
+
+          <!-- Quick Search & Pin Bar -->
+          <div class="form-group">
+            <label for="loc-search-quick"><i class="fa-solid fa-magnifying-glass-location"></i> Search Place, Address, or Plus Code</label>
+            <div style="display:flex; gap:0.5rem;">
+              <input type="text" id="loc-search-quick" placeholder="Paste Plus Code (e.g. C7HH+XQ2, Lahore) or Google Maps link" onkeydown="if(event.key==='Enter'){event.preventDefault();resolveModalLocationSearch();}" onpaste="setTimeout(resolveModalLocationSearch, 150)">
+              <button type="button" class="btn btn-primary" onclick="resolveModalLocationSearch()"><i class="fa-solid fa-location-arrow"></i> Locate on Map</button>
+              <button type="button" class="btn btn-outline-info" onclick="pinCurrentLocationInModal()" title="Use my device GPS"><i class="fa-solid fa-crosshairs"></i> My GPS</button>
+            </div>
+          </div>
+
+          <!-- Interactive Map Picker -->
+          <div class="location-picker-wrap">
+            <div class="map-picker-banner">
+              <span><i class="fa-solid fa-hand-pointer text-indigo"></i> <strong>Point on map:</strong> Click anywhere on the map or drag the pin to set the exact office entrance:</span>
+              <span id="modal-picker-coords-badge" class="badge-pill-val">31.5526, 74.3222</span>
+            </div>
+            <div id="modal-location-picker-map" class="picker-map-container"></div>
+          </div>
+
+          <!-- Radius & Coordinates Readout -->
+          <div class="form-grid-2" style="margin-top: 0.75rem;">
+            <div class="form-group">
+              <label for="loc-radius"><i class="fa-solid fa-circle-notch"></i> Allowed Geofence Radius: <strong id="modal-loc-radius-val" style="color: var(--accent-primary);">100m</strong></label>
+              <input type="range" id="loc-radius" min="20" max="1000" step="10" value="100" oninput="updateModalRadius(this.value)">
+              <div class="radius-presets-group" style="margin-top: 0.35rem;">
+                <button type="button" class="preset-pill" onclick="setModalRadiusPreset(50)">50m</button>
+                <button type="button" class="preset-pill active" onclick="setModalRadiusPreset(100)">100m</button>
+                <button type="button" class="preset-pill" onclick="setModalRadiusPreset(200)">200m</button>
+                <button type="button" class="preset-pill" onclick="setModalRadiusPreset(500)">500m</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label><i class="fa-solid fa-compass"></i> Coordinates (Auto-Updated from Map)</label>
+              <div class="form-grid-2">
+                <input type="number" id="loc-lat" step="0.000001" placeholder="Latitude" required readonly style="opacity: 0.9; cursor: default; background: rgba(0,0,0,0.15);">
+                <input type="number" id="loc-lng" step="0.000001" placeholder="Longitude" required readonly style="opacity: 0.9; cursor: default; background: rgba(0,0,0,0.15);">
+              </div>
+              <small class="text-muted" style="font-size: 0.72rem; margin-top: 0.2rem; display: block;">
+                Auto-fills as you click or drag the pin. No manual coordinate typing required!
+              </small>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" onclick="closeLocationModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary glow-btn"><i class="fa-solid fa-floppy-disk"></i> Save Workplace Location</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Add Employee (Admin) -->
+  <div id="modal-employee-form" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-user-plus"></i> Register Employee</h3>
+        <button class="btn-close" onclick="closeAddEmployeeModal()">&times;</button>
+      </div>
+      <form id="form-admin-add-emp" onsubmit="handleAdminAddEmployee(event)">
+        <div class="modal-body">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="admin-emp-name">Full Name</label>
+              <input type="text" id="admin-emp-name" required>
+            </div>
+            <div class="form-group">
+              <label for="admin-emp-code">Employee Code</label>
+              <input type="text" id="admin-emp-code" placeholder="EMP-105" required>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="admin-emp-email">Email Address</label>
+            <input type="email" id="admin-emp-email" required>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="admin-emp-dept">Department</label>
+              <input type="text" id="admin-emp-dept" placeholder="Sales / IT / Operations">
+            </div>
+            <div class="form-group">
+              <label for="admin-emp-role">System Role</label>
+              <select id="admin-emp-role">
+                <option value="EMPLOYEE">Employee</option>
+                <option value="ADMIN">Admin / CEO</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="admin-emp-site">Assigned Office Site</label>
+            <select id="admin-emp-site">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="admin-emp-password">Initial Password</label>
+            <input type="password" id="admin-emp-password" minlength="6" value="employee123" required>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" onclick="closeAddEmployeeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary glow-btn">Create Employee</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Employee & Site Reassignment (Admin) -->
+  <div id="modal-edit-employee" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel">
+      <div class="modal-header">
+        <h3><i class="fa-solid fa-user-pen"></i> Edit Staff & Site Assignment</h3>
+        <button class="btn-close" onclick="closeEditEmployeeModal()">&times;</button>
+      </div>
+      <form id="form-admin-edit-emp" onsubmit="handleAdminEditEmployee(event)">
+        <input type="hidden" id="edit-emp-id">
+        <div class="modal-body">
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="edit-emp-name">Full Name</label>
+              <input type="text" id="edit-emp-name" required>
+            </div>
+            <div class="form-group">
+              <label for="edit-emp-code">Employee Code</label>
+              <input type="text" id="edit-emp-code" disabled style="opacity: 0.7;">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="edit-emp-dept">Department</label>
+              <input type="text" id="edit-emp-dept" placeholder="Sales / IT / Operations">
+            </div>
+            <div class="form-group">
+              <label for="edit-emp-phone">Phone Number</label>
+              <input type="tel" id="edit-emp-phone" placeholder="+1-555-0199">
+            </div>
+          </div>
+          <div class="form-grid-2">
+            <div class="form-group">
+              <label for="edit-emp-role">System Role</label>
+              <select id="edit-emp-role">
+                <option value="EMPLOYEE">Employee</option>
+                <option value="ADMIN">Admin / CEO</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="edit-emp-status">Account Status</label>
+              <select id="edit-emp-status">
+                <option value="1">Active</option>
+                <option value="0">Deactivated</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="edit-emp-site"><i class="fa-solid fa-map-pin"></i> Assigned Workplace Site</label>
+            <select id="edit-emp-site">
+              <!-- Dynamically populated -->
+            </select>
+            <small class="text-muted" style="font-size: 0.76rem; margin-top: 0.25rem; display: flex; align-items: center; gap: 0.35rem;">
+              <i class="fa-solid fa-circle-info"></i> The employee's presence radar & geofence will immediately lock to this site.
+            </small>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" onclick="closeEditEmployeeModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary glow-btn">Save Employee & Site</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <!-- Application Client Scripts -->
+  <script src="js/api.js"></script>
+  <script src="js/employee.js"></script>
+  <script src="js/admin.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>

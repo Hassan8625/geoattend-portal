@@ -1,0 +1,491 @@
+/**
+ * GeoAttend PRO — Employee Portal Controller
+ * Real-time GPS Tracking, Geofence Radar, Leaflet Map & Attendance Verification
+ */
+
+const EmployeeController = {
+  assignedLocation: null,
+  currentCoords: null,
+  currentAccuracy: 10,
+  gpsWatchId: null,
+  map: null,
+  officeMarker: null,
+  officeCircle: null,
+  userMarker: null,
+  distanceLine: null,
+
+  isSimMode: false,
+  simCoords: null,
+
+  async init() {
+    console.log('Initializing Employee Portal...');
+    await this.loadUserProfileAndLocation();
+    this.initLeafletMap();
+    this.startGPSTracking();
+    this.checkTodayAttendanceStatus();
+    this.loadHistory();
+  },
+
+  async loadUserProfileAndLocation() {
+    try {
+      const res = await API.request('/api/auth/me');
+      if (res.success && res.user) {
+        API.setUser(res.user);
+        document.getElementById('emp-welcome-name').textContent = res.user.name.split(' ')[0];
+
+        if (res.user.assigned_location) {
+          this.assignedLocation = res.user.assigned_location;
+          document.getElementById('emp-assigned-site-name').textContent = this.assignedLocation.name;
+          document.getElementById('gps-radius-readout').textContent = `${this.assignedLocation.radius_meters} m`;
+        } else {
+          // Fetch first active location as fallback
+          const locRes = await API.request('/api/locations');
+          if (locRes.success && locRes.locations.length > 0) {
+            this.assignedLocation = locRes.locations[0];
+            document.getElementById('emp-assigned-site-name').textContent = this.assignedLocation.name;
+            document.getElementById('gps-radius-readout').textContent = `${this.assignedLocation.radius_meters} m`;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Error loading profile:', err);
+      showToast('Could not load assigned workplace location.', 'error');
+    }
+  },
+
+  initLeafletMap() {
+    const mapContainer = document.getElementById('employee-map');
+    if (!mapContainer || this.map) return;
+
+    const defaultLat = this.assignedLocation ? this.assignedLocation.latitude : 24.8607;
+    const defaultLng = this.assignedLocation ? this.assignedLocation.longitude : 67.0011;
+
+    this.map = L.map('employee-map', {
+      center: [defaultLat, defaultLng],
+      zoom: 17,
+      zoomControl: true
+    });
+
+    // High-resolution OpenStreetMap tiles
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(this.map);
+
+    // Render Office Geofence Circle
+    if (this.assignedLocation) {
+      this.renderOfficeGeofence();
+    }
+
+    // Allow clicking on map during simulation mode to reposition test user
+    this.map.on('click', (e) => {
+      if (this.isSimMode) {
+        this.setSimulatedPosition(e.latlng.lat, e.latlng.lng);
+        showToast(`Simulated GPS moved to [${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}]`, 'info');
+      }
+    });
+  },
+
+  renderOfficeGeofence() {
+    if (!this.map || !this.assignedLocation) return;
+
+    const lat = this.assignedLocation.latitude;
+    const lng = this.assignedLocation.longitude;
+    const radius = this.assignedLocation.radius_meters;
+
+    if (this.officeMarker) this.map.removeLayer(this.officeMarker);
+    if (this.officeCircle) this.map.removeLayer(this.officeCircle);
+
+    // Office Pin
+    const officeIcon = L.divIcon({
+      className: 'custom-map-icon',
+      html: `<div style="background:#6366f1; width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; box-shadow:0 0 12px rgba(99,102,241,0.8); border:2px solid white;">
+              <i class="fa-solid fa-building" style="font-size:14px;"></i>
+             </div>`,
+      iconSize: [34, 34],
+      iconAnchor: [17, 17]
+    });
+
+    this.officeMarker = L.marker([lat, lng], { icon: officeIcon })
+      .addTo(this.map)
+      .bindPopup(`<b>${this.assignedLocation.name}</b><br>Allowed Geofence Radius: ${radius}m`)
+      .openPopup();
+
+    // Geofence perimeter boundary circle
+    this.officeCircle = L.circle([lat, lng], {
+      color: '#6366f1',
+      fillColor: '#818cf8',
+      fillOpacity: 0.18,
+      radius: radius,
+      weight: 2,
+      dashArray: '4, 4'
+    }).addTo(this.map);
+  },
+
+  startGPSTracking() {
+    if (!navigator.geolocation) {
+      this.updateRadarStatus('Geolocation not supported by device', 'error');
+      showToast('HTML5 Geolocation is not supported on this browser.', 'error');
+      return;
+    }
+
+    this.updateRadarStatus('Acquiring high-precision GPS...', 'loading');
+
+    // High accuracy GPS options
+    const geoOptions = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 2000
+    };
+
+    // First one-shot position fetch
+    navigator.geolocation.getCurrentPosition(
+      (pos) => this.onGPSSuccess(pos),
+      (err) => this.onGPSError(err),
+      geoOptions
+    );
+
+    // Watch position continuously as employee moves
+    this.gpsWatchId = navigator.geolocation.watchPosition(
+      (pos) => this.onGPSSuccess(pos),
+      (err) => this.onGPSError(err),
+      geoOptions
+    );
+  },
+
+  onGPSSuccess(position) {
+    if (this.isSimMode) return; // Ignore real GPS while simulation is active
+
+    const lat = position.coords.latitude;
+    const lng = position.coords.longitude;
+    const accuracy = position.coords.accuracy || 10;
+
+    this.currentCoords = { lat, lng };
+    this.currentAccuracy = accuracy;
+
+    this.updateUIWithCoordinates(lat, lng, accuracy);
+  },
+
+  onGPSError(error) {
+    if (this.isSimMode) return;
+
+    let msg = 'GPS signal unavailable.';
+    if (error.code === 1) {
+      msg = 'Location permission denied. Please allow location access in browser settings.';
+    } else if (error.code === 2) {
+      msg = 'Position unavailable. Check GPS sensor.';
+    } else if (error.code === 3) {
+      msg = 'GPS request timed out. Retrying...';
+    }
+
+    this.updateRadarStatus(msg, 'error');
+  },
+
+  updateUIWithCoordinates(lat, lng, accuracy) {
+    document.getElementById('gps-accuracy-readout').textContent = `±${Math.round(accuracy)} m`;
+    document.getElementById('map-coord-pill').textContent = `Lat: ${lat.toFixed(5)}, Lng: ${lng.toFixed(5)}`;
+
+    if (!this.assignedLocation) {
+      this.updateRadarStatus('Office location pending', 'loading');
+      return;
+    }
+
+    // Calculate distance
+    const dist = calculateClientHaversine(
+      lat,
+      lng,
+      this.assignedLocation.latitude,
+      this.assignedLocation.longitude
+    );
+
+    const isInside = dist <= this.assignedLocation.radius_meters;
+
+    // Update Radar visuals
+    document.getElementById('radar-distance-meters').textContent = dist;
+    const badge = document.getElementById('radar-boundary-badge');
+    const statusText = document.getElementById('radar-status-text');
+    const statusChip = document.getElementById('radar-status-chip');
+    const checkinBtn = document.getElementById('btn-mark-attendance');
+    const checkinSub = document.getElementById('btn-checkin-sub');
+
+    if (isInside) {
+      badge.className = 'geofence-badge-pill badge-in-bounds';
+      badge.textContent = '🟢 WITHIN BOUNDARY';
+      statusText.textContent = `Within Geofence (${dist}m away)`;
+      statusChip.style.borderColor = 'rgba(16, 185, 129, 0.4)';
+
+      checkinBtn.classList.remove('btn-outline-secondary');
+      checkinBtn.classList.add('btn-primary');
+      checkinSub.textContent = `Ready to Check In at ${this.assignedLocation.name}`;
+    } else {
+      badge.className = 'geofence-badge-pill badge-out-bounds';
+      badge.textContent = `🔴 OUT OF BOUNDS (+${dist - this.assignedLocation.radius_meters}m)`;
+      statusText.textContent = `Outside Office Boundary (${dist}m away)`;
+      statusChip.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+
+      checkinSub.textContent = `You must be within ${this.assignedLocation.radius_meters}m to mark attendance`;
+    }
+
+    // Update Map User Marker and distance line
+    this.updateMapUserMarker(lat, lng, dist, isInside);
+  },
+
+  updateMapUserMarker(lat, lng, dist, isInside) {
+    if (!this.map) return;
+
+    const userColor = isInside ? '#10b981' : '#ef4444';
+
+    if (this.userMarker) this.map.removeLayer(this.userMarker);
+    if (this.distanceLine) this.map.removeLayer(this.distanceLine);
+
+    // User pin
+    const userIcon = L.divIcon({
+      className: 'custom-map-icon',
+      html: `<div style="background:${userColor}; width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; color:white; box-shadow:0 0 14px ${userColor}; border:2px solid white;">
+              <i class="fa-solid fa-user" style="font-size:12px;"></i>
+             </div>`,
+      iconSize: [28, 28],
+      iconAnchor: [14, 14]
+    });
+
+    this.userMarker = L.marker([lat, lng], { icon: userIcon })
+      .addTo(this.map)
+      .bindPopup(`<b>Your Position</b><br>Distance to Office: ${dist}m<br>Status: ${isInside ? 'Inside Boundary' : 'Outside Boundary'}`);
+
+    // Connecting line
+    if (this.assignedLocation) {
+      const officePos = [this.assignedLocation.latitude, this.assignedLocation.longitude];
+      this.distanceLine = L.polyline([[lat, lng], officePos], {
+        color: isInside ? '#10b981' : '#f59e0b',
+        weight: 3,
+        dashArray: '6, 6'
+      }).addTo(this.map);
+
+      // Fit bounds to show both user and office comfortably
+      const bounds = L.latLngBounds([[lat, lng], officePos]);
+      this.map.fitBounds(bounds, { padding: [50, 50], maxZoom: 18 });
+    }
+  },
+
+  updateRadarStatus(text, type = 'normal') {
+    const statusText = document.getElementById('radar-status-text');
+    if (statusText) statusText.textContent = text;
+  },
+
+  setSimulatedPosition(lat, lng) {
+    this.isSimMode = true;
+    this.simCoords = { lat, lng };
+    this.currentCoords = { lat, lng };
+    this.currentAccuracy = 5; // Perfect simulated GPS accuracy
+    this.updateUIWithCoordinates(lat, lng, 5);
+  },
+
+  async checkTodayAttendanceStatus() {
+    try {
+      const res = await API.request('/api/attendance/today-status');
+      const alertBox = document.getElementById('attendance-status-alert');
+      const checkinBtn = document.getElementById('btn-mark-attendance');
+      const checkoutBtn = document.getElementById('btn-mark-checkout');
+
+      if (res.success) {
+        if (res.hasCheckedIn) {
+          const time = res.checkInRecord.server_timestamp.split('T')[1].substring(0, 5);
+          alertBox.className = 'attendance-alert-box alert-success';
+          alertBox.innerHTML = `
+            <i class="fa-solid fa-circle-check"></i>
+            <strong>Present Today:</strong> You checked in at <b>${time} UTC</b> (${res.checkInRecord.status}).
+          `;
+          alertBox.classList.remove('hidden');
+
+          checkinBtn.disabled = true;
+          checkinBtn.classList.add('btn-outline-secondary');
+          checkinBtn.classList.remove('btn-primary');
+          document.getElementById('btn-checkin-sub').textContent = 'Attendance already registered for today';
+
+          // Show checkout button if not already checked out
+          if (!res.hasCheckedOut) {
+            checkoutBtn.classList.remove('hidden');
+          } else {
+            checkoutBtn.classList.add('hidden');
+            alertBox.innerHTML += `<br><i class="fa-solid fa-clock"></i> Checked out for the day.`;
+          }
+        } else {
+          alertBox.classList.add('hidden');
+          checkinBtn.disabled = false;
+          checkoutBtn.classList.add('hidden');
+        }
+      }
+    } catch (err) {
+      console.error('Error checking today status:', err);
+    }
+  },
+
+  async handleCheckIn() {
+    if (!this.currentCoords) {
+      showToast('Waiting for GPS coordinates. Please ensure location is enabled.', 'error');
+      return;
+    }
+
+    setLoading(true, 'Verifying Physical Presence & Anti-Spoofing Check...');
+
+    try {
+      const payload = {
+        latitude: this.currentCoords.lat,
+        longitude: this.currentCoords.lng,
+        gps_accuracy: this.currentAccuracy,
+        location_id: this.assignedLocation ? this.assignedLocation.id : null,
+        device_info: navigator.userAgent
+      };
+
+      const res = await API.request('/api/attendance/check-in', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      setLoading(false);
+
+      if (res.success) {
+        showToast(`✓ Attendance Verified! Marked as ${res.status}.`, 'success');
+        this.checkTodayAttendanceStatus();
+        this.loadHistory();
+      }
+    } catch (err) {
+      setLoading(false);
+      console.error('Check-in failed:', err);
+      const errMsg = err.message || 'Check-in failed.';
+      showToast(errMsg, 'error');
+
+      // Update alert box with rejection details
+      const alertBox = document.getElementById('attendance-status-alert');
+      alertBox.className = 'attendance-alert-box alert-danger';
+      alertBox.innerHTML = `
+        <i class="fa-solid fa-triangle-exclamation"></i>
+        <strong>Verification Failed:</strong> ${errMsg}
+      `;
+      alertBox.classList.remove('hidden');
+    }
+  },
+
+  async handleCheckOut() {
+    if (!this.currentCoords) {
+      showToast('Waiting for GPS coordinates.', 'error');
+      return;
+    }
+
+    setLoading(true, 'Recording Check-Out...');
+
+    try {
+      const payload = {
+        latitude: this.currentCoords.lat,
+        longitude: this.currentCoords.lng,
+        gps_accuracy: this.currentAccuracy,
+        device_info: navigator.userAgent
+      };
+
+      const res = await API.request('/api/attendance/check-out', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+
+      setLoading(false);
+      if (res.success) {
+        showToast('Check-out recorded successfully. Have a nice day!', 'success');
+        this.checkTodayAttendanceStatus();
+        this.loadHistory();
+      }
+    } catch (err) {
+      setLoading(false);
+      showToast(err.message || 'Check-out failed.', 'error');
+    }
+  },
+
+  async loadHistory() {
+    try {
+      const res = await API.request('/api/attendance/my-history?limit=15');
+      const tbody = document.getElementById('emp-history-tbody');
+      if (!tbody) return;
+
+      if (!res.success || !res.records || res.records.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No attendance logs found yet.</td></tr>`;
+        return;
+      }
+
+      tbody.innerHTML = res.records.map(r => {
+        let statusBadge = `<span class="badge-status status-present"><i class="fa-solid fa-check"></i> Present</span>`;
+        if (r.status === 'LATE') {
+          statusBadge = `<span class="badge-status status-late"><i class="fa-solid fa-clock"></i> Late</span>`;
+        } else if (r.status === 'OUT_OF_BOUNDS_REJECTED') {
+          statusBadge = `<span class="badge-status status-rejected"><i class="fa-solid fa-ban"></i> Rejected</span>`;
+        }
+
+        const timeStr = r.server_timestamp.replace('T', ' ').substring(11, 19);
+
+        return `
+          <tr>
+            <td><strong>${r.work_date}</strong></td>
+            <td>${timeStr} UTC</td>
+            <td><span class="tag-pill">${r.check_type}</span></td>
+            <td>${statusBadge}</td>
+            <td>${r.distance_meters} m</td>
+            <td>${r.location_name || 'Assigned Site'}</td>
+          </tr>
+        `;
+      }).join('');
+    } catch (err) {
+      console.error('Error loading employee history:', err);
+    }
+  }
+};
+
+// Global helper wrappers called from HTML onclick
+function submitAttendanceCheckIn() {
+  EmployeeController.handleCheckIn();
+}
+
+function submitAttendanceCheckOut() {
+  EmployeeController.handleCheckOut();
+}
+
+function loadEmployeeHistory() {
+  EmployeeController.loadHistory();
+}
+
+function refreshGPSLocation(manual = false) {
+  if (manual) showToast('Refreshing GPS Coordinates...', 'info');
+  EmployeeController.startGPSTracking();
+}
+
+function toggleSimulationMode(active) {
+  EmployeeController.isSimMode = active;
+  const controls = document.getElementById('sim-controls');
+  if (active) {
+    controls.classList.remove('hidden');
+    showToast('Simulation Mode Active. You can click on the map or use presets.', 'info');
+    // Default to inside office
+    simulateLocation('INSIDE');
+  } else {
+    controls.classList.add('hidden');
+    showToast('Switched back to Real Device Hardware GPS.', 'info');
+    EmployeeController.startGPSTracking();
+  }
+}
+
+function simulateLocation(type) {
+  if (!EmployeeController.assignedLocation) return;
+  const baseLat = EmployeeController.assignedLocation.latitude;
+  const baseLng = EmployeeController.assignedLocation.longitude;
+
+  if (type === 'INSIDE') {
+    // ~15 meters away
+    EmployeeController.setSimulatedPosition(baseLat + 0.0001, baseLng + 0.0001);
+    showToast('Simulated Location: Inside Office (~15m)', 'success');
+  } else if (type === 'OUTSIDE') {
+    // ~1.5 km away
+    EmployeeController.setSimulatedPosition(baseLat + 0.012, baseLng + 0.012);
+    showToast('Simulated Location: Far Away (~1.5km Outside)', 'error');
+  } else if (type === 'PERIMETER') {
+    // ~85 meters away (close to 100m edge)
+    EmployeeController.setSimulatedPosition(baseLat + 0.0007, baseLng + 0.0003);
+    showToast('Simulated Location: Near Geofence Boundary (~85m)', 'info');
+  }
+}
