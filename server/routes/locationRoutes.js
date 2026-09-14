@@ -72,27 +72,41 @@ router.post('/resolve-code', protect, adminOnly, async (req, res) => {
       }
     }
 
-    // 4. Fallback to OpenStreetMap Nominatim Geocoding for text addresses
-    const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(trimmed)}&limit=1`;
-    const geoRes = await fetch(geoUrl, {
-      headers: { 'User-Agent': 'GeoAttend-App/1.0' }
-    });
-    if (geoRes.ok) {
-      const results = await geoRes.json();
-      if (results && results.length > 0) {
-        return res.json({
-          success: true,
-          latitude: parseFloat(results[0].lat),
-          longitude: parseFloat(results[0].lon),
-          source: 'Address Search',
-          formattedAddress: results[0].display_name
-        });
+    // 4. Fallback to OpenStreetMap Nominatim Geocoding with Smart Candidate Parsing
+    let cleaned = trimmed.replace(/[–—]/g, '-').replace(/,\s*[a-zA-Z]{1,2}$/, ', Lahore').trim();
+    const candidates = [cleaned];
+    const parts = cleaned.split(',').map(s => s.trim()).filter(s => s.length > 2);
+    for (let i = 0; i < parts.length; i++) {
+      if (!parts[i].toLowerCase().includes('lahore') && !parts[i].toLowerCase().includes('pakistan')) {
+        candidates.push(`${parts[i]}, Lahore`);
       }
+      candidates.push(parts[i]);
+    }
+
+    for (const cand of candidates) {
+      try {
+        const geoUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(cand)}&limit=1`;
+        const geoRes = await fetch(geoUrl, {
+          headers: { 'User-Agent': 'GeoAttend-App/1.0' }
+        });
+        if (geoRes.ok) {
+          const results = await geoRes.json();
+          if (results && results.length > 0) {
+            return res.json({
+              success: true,
+              latitude: parseFloat(results[0].lat),
+              longitude: parseFloat(results[0].lon),
+              source: 'Address Search',
+              formattedAddress: results[0].display_name
+            });
+          }
+        }
+      } catch (_) {}
     }
 
     return res.status(404).json({
       success: false,
-      message: 'Could not resolve this address or Plus Code. You can also paste direct latitude, longitude or drag the map pin.'
+      message: 'Could not resolve this address. You can drag the map pin or paste the Google Plus Code (e.g. C7HH+XQ2).'
     });
   } catch (err) {
     console.error('Resolve error:', err);
