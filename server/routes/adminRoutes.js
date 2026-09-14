@@ -15,31 +15,36 @@ router.use(adminOnly);
  * @desc    Get live metrics for the CEO dashboard
  * @access  Private (Admin / CEO only)
  */
-router.get('/dashboard-stats', (req, res) => {
+router.get('/dashboard-stats', async (req, res) => {
   try {
     const today = getLocalDateString(new Date());
 
-    const totalEmployees = db.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'EMPLOYEE' AND is_active = 1`).get().count;
+    const totalEmpRow = await db.queryOne(`SELECT COUNT(*) as count FROM users WHERE role = 'EMPLOYEE' AND is_active = 1`);
+    const totalEmployees = parseInt(totalEmpRow ? totalEmpRow.count : 0);
     
-    const presentToday = db.prepare(`
+    const presentRow = await db.queryOne(`
       SELECT COUNT(DISTINCT user_id) as count 
       FROM attendance_records 
       WHERE work_date = ? AND check_type = 'CHECK_IN' AND status = 'PRESENT'
-    `).get(today).count;
+    `, [today]);
+    const presentToday = parseInt(presentRow ? presentRow.count : 0);
 
-    const lateToday = db.prepare(`
+    const lateRow = await db.queryOne(`
       SELECT COUNT(DISTINCT user_id) as count 
       FROM attendance_records 
       WHERE work_date = ? AND check_type = 'CHECK_IN' AND status = 'LATE'
-    `).get(today).count;
+    `, [today]);
+    const lateToday = parseInt(lateRow ? lateRow.count : 0);
 
-    const rejectedToday = db.prepare(`
+    const rejectedRow = await db.queryOne(`
       SELECT COUNT(*) as count 
       FROM attendance_records 
       WHERE work_date = ? AND status = 'OUT_OF_BOUNDS_REJECTED'
-    `).get(today).count;
+    `, [today]);
+    const rejectedToday = parseInt(rejectedRow ? rejectedRow.count : 0);
 
-    const totalLocations = db.prepare(`SELECT COUNT(*) as count FROM locations WHERE is_active = 1`).get().count;
+    const totalLocRow = await db.queryOne(`SELECT COUNT(*) as count FROM locations WHERE is_active = 1`);
+    const totalLocations = parseInt(totalLocRow ? totalLocRow.count : 0);
 
     res.json({
       success: true,
@@ -65,7 +70,7 @@ router.get('/dashboard-stats', (req, res) => {
  * @desc    Query and filter all employee attendance logs
  * @access  Private (Admin / CEO only)
  */
-router.get('/attendance', (req, res) => {
+router.get('/attendance', async (req, res) => {
   try {
     const { date, status, location_id, search, limit = 100, page = 1 } = req.query;
 
@@ -108,7 +113,7 @@ router.get('/attendance', (req, res) => {
     const offset = (parseInt(page) - 1) * parseInt(limit);
     params.push(parseInt(limit), offset);
 
-    const records = db.prepare(query).all(...params);
+    const records = await db.query(query, params);
 
     res.json({ success: true, count: records.length, records });
   } catch (err) {
@@ -122,7 +127,7 @@ router.get('/attendance', (req, res) => {
  * @desc    Export attendance records as CSV for CEO / HR payroll
  * @access  Private (Admin / CEO only)
  */
-router.get('/attendance/export-csv', (req, res) => {
+router.get('/attendance/export-csv', async (req, res) => {
   try {
     const { date_from, date_to } = req.query;
 
@@ -149,7 +154,7 @@ router.get('/attendance/export-csv', (req, res) => {
 
     query += ` ORDER BY a.server_timestamp DESC`;
 
-    const records = db.prepare(query).all(...params);
+    const records = await db.query(query, params);
 
     // Build CSV content
     const headers = [
@@ -203,9 +208,9 @@ router.get('/attendance/export-csv', (req, res) => {
  * @desc    List all registered employees
  * @access  Private (Admin / CEO only)
  */
-router.get('/employees', (req, res) => {
+router.get('/employees', async (req, res) => {
   try {
-    const employees = db.prepare(`
+    const employees = await db.query(`
       SELECT u.id, u.name, u.email, u.employee_code, u.role, u.department, u.phone, 
              u.is_active, u.created_at, u.assigned_location_id,
              l.name as assigned_location_name,
@@ -213,7 +218,7 @@ router.get('/employees', (req, res) => {
       FROM users u
       LEFT JOIN locations l ON u.assigned_location_id = l.id
       ORDER BY u.role ASC, u.name ASC
-    `).all();
+    `);
 
     res.json({ success: true, employees });
   } catch (err) {
@@ -238,7 +243,7 @@ router.post('/employees', async (req, res) => {
     const trimmedEmail = email.trim().toLowerCase();
     const trimmedCode = employee_code.trim().toUpperCase();
 
-    const existing = db.prepare(`SELECT id FROM users WHERE email = ? OR employee_code = ?`).get(trimmedEmail, trimmedCode);
+    const existing = await db.queryOne(`SELECT id FROM users WHERE email = ? OR employee_code = ?`, [trimmedEmail, trimmedCode]);
     if (existing) {
       return res.status(400).json({ success: false, message: 'Email or Employee Code already in use.' });
     }
@@ -246,13 +251,11 @@ router.post('/employees', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    const insert = db.prepare(`
+    const userRole = role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE';
+    const result = await db.execute(`
       INSERT INTO users (name, email, password_hash, employee_code, role, assigned_location_id, department, phone)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const userRole = role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE';
-    const result = insert.run(
+    `, [
       name.trim(),
       trimmedEmail,
       password_hash,
@@ -261,9 +264,9 @@ router.post('/employees', async (req, res) => {
       assigned_location_id ? parseInt(assigned_location_id) : null,
       department ? department.trim() : 'General',
       phone ? phone.trim() : null
-    );
+    ]);
 
-    const created = db.prepare(`SELECT id, name, email, employee_code, role, department FROM users WHERE id = ?`).get(result.lastInsertRowid);
+    const created = await db.queryOne(`SELECT id, name, email, employee_code, role, department FROM users WHERE id = ?`, [result.lastInsertRowid]);
 
     res.status(201).json({
       success: true,
@@ -281,12 +284,12 @@ router.post('/employees', async (req, res) => {
  * @desc    Update employee status, department, role, or assigned location
  * @access  Private (Admin / CEO only)
  */
-router.put('/employees/:id', (req, res) => {
+router.put('/employees/:id', async (req, res) => {
   try {
     const employeeId = parseInt(req.params.id);
     const { name, department, phone, assigned_location_id, role, is_active } = req.body;
 
-    const existing = db.prepare(`SELECT * FROM users WHERE id = ?`).get(employeeId);
+    const existing = await db.queryOne(`SELECT * FROM users WHERE id = ?`, [employeeId]);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
@@ -296,13 +299,11 @@ router.put('/employees/:id', (req, res) => {
       return res.status(400).json({ success: false, message: 'You cannot deactivate or demote your own administrator account.' });
     }
 
-    const update = db.prepare(`
+    await db.execute(`
       UPDATE users 
       SET name = ?, department = ?, phone = ?, assigned_location_id = ?, role = ?, is_active = ?
       WHERE id = ?
-    `);
-
-    update.run(
+    `, [
       name !== undefined ? name.trim() : existing.name,
       department !== undefined ? department.trim() : existing.department,
       phone !== undefined ? phone.trim() : existing.phone,
@@ -310,9 +311,9 @@ router.put('/employees/:id', (req, res) => {
       role !== undefined ? role : existing.role,
       is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
       employeeId
-    );
+    ]);
 
-    const updated = db.prepare(`SELECT id, name, email, employee_code, role, department, is_active FROM users WHERE id = ?`).get(employeeId);
+    const updated = await db.queryOne(`SELECT id, name, email, employee_code, role, department, is_active FROM users WHERE id = ?`, [employeeId]);
 
     res.json({
       success: true,

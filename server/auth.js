@@ -24,7 +24,7 @@ function generateToken(user) {
 /**
  * Express middleware to protect routes requiring authentication
  */
-function protect(req, res, next) {
+async function protect(req, res, next) {
   let token = null;
 
   // Check Authorization header
@@ -43,10 +43,10 @@ function protect(req, res, next) {
     const decoded = jwt.verify(token, JWT_SECRET);
 
     // Verify user still exists in database and is active
-    const user = db.prepare(`
+    const user = await db.queryOne(`
       SELECT id, name, email, employee_code, role, assigned_location_id, department, phone, is_active
       FROM users WHERE id = ?
-    `).get(decoded.id);
+    `, [decoded.id]);
 
     if (!user || user.is_active !== 1) {
       return res.status(401).json({ success: false, message: 'Account not found or has been deactivated.' });

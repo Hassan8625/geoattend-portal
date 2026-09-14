@@ -9,9 +9,9 @@ const router = express.Router();
  * @desc    Get system settings
  * @access  Private
  */
-router.get('/', protect, (req, res) => {
+router.get('/', protect, async (req, res) => {
   try {
-    const rows = db.prepare(`SELECT key, value FROM system_settings`).all();
+    const rows = await db.query(`SELECT key, value FROM system_settings`);
     const settings = {};
     rows.forEach(r => {
       settings[r.key] = r.value;
@@ -29,26 +29,20 @@ router.get('/', protect, (req, res) => {
  * @desc    Update system settings (Work hours, late grace threshold)
  * @access  Private (Admin / CEO only)
  */
-router.put('/', protect, adminOnly, (req, res) => {
+router.put('/', protect, adminOnly, async (req, res) => {
   try {
     const updates = req.body; // e.g. { work_start_time: '09:00', late_grace_minutes: '15', company_name: 'Acme Inc' }
 
-    const updateStmt = db.prepare(`
-      INSERT INTO system_settings (key, value) VALUES (?, ?)
-      ON CONFLICT(key) DO UPDATE SET value = excluded.value
-    `);
-
-    const updateMany = db.transaction((settingsObj) => {
-      for (const [key, val] of Object.entries(settingsObj)) {
-        if (typeof val === 'string' || typeof val === 'number') {
-          updateStmt.run(key, String(val));
-        }
+    for (const [key, val] of Object.entries(updates)) {
+      if (typeof val === 'string' || typeof val === 'number') {
+        await db.execute(`
+          INSERT INTO system_settings (key, value) VALUES (?, ?)
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        `, [key, String(val)]);
       }
-    });
+    }
 
-    updateMany(updates);
-
-    const rows = db.prepare(`SELECT key, value FROM system_settings`).all();
+    const rows = await db.query(`SELECT key, value FROM system_settings`);
     const settings = {};
     rows.forEach(r => { settings[r.key] = r.value; });
 

@@ -119,7 +119,7 @@ router.post('/resolve-code', protect, adminOnly, async (req, res) => {
  * @desc    Get office / site locations (public returns active, admin returns all)
  * @access  Public / Private
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     let isAdmin = false;
     let token = null;
@@ -145,7 +145,7 @@ router.get('/', (req, res) => {
       ? `SELECT id, name, address, latitude, longitude, radius_meters, is_active, created_at FROM locations ORDER BY id ASC`
       : `SELECT id, name, address, latitude, longitude, radius_meters, is_active, created_at FROM locations WHERE is_active = 1 ORDER BY id ASC`;
 
-    const locations = db.prepare(query).all();
+    const locations = await db.query(query);
 
     res.json({ success: true, locations });
   } catch (err) {
@@ -159,7 +159,7 @@ router.get('/', (req, res) => {
  * @desc    Create a new geofence location
  * @access  Private (Admin / CEO only)
  */
-router.post('/', protect, adminOnly, (req, res) => {
+router.post('/', protect, adminOnly, async (req, res) => {
   try {
     const { name, address, latitude, longitude, radius_meters } = req.body;
 
@@ -182,14 +182,12 @@ router.post('/', protect, adminOnly, (req, res) => {
       return res.status(400).json({ success: false, message: 'Geofence radius must be between 10m and 5000m.' });
     }
 
-    const insert = db.prepare(`
+    const result = await db.execute(`
       INSERT INTO locations (name, address, latitude, longitude, radius_meters)
       VALUES (?, ?, ?, ?, ?)
-    `);
+    `, [name.trim(), address ? address.trim() : '', lat, lng, radius]);
 
-    const result = insert.run(name.trim(), address ? address.trim() : '', lat, lng, radius);
-
-    const newLocation = db.prepare(`SELECT * FROM locations WHERE id = ?`).get(result.lastInsertRowid);
+    const newLocation = await db.queryOne(`SELECT * FROM locations WHERE id = ?`, [result.lastInsertRowid]);
 
     res.status(201).json({
       success: true,
@@ -207,12 +205,12 @@ router.post('/', protect, adminOnly, (req, res) => {
  * @desc    Update an existing location's coordinates or radius
  * @access  Private (Admin / CEO only)
  */
-router.put('/:id', protect, adminOnly, (req, res) => {
+router.put('/:id', protect, adminOnly, async (req, res) => {
   try {
     const locationId = parseInt(req.params.id);
     const { name, address, latitude, longitude, radius_meters, is_active } = req.body;
 
-    const existing = db.prepare(`SELECT * FROM locations WHERE id = ?`).get(locationId);
+    const existing = await db.queryOne(`SELECT * FROM locations WHERE id = ?`, [locationId]);
     if (!existing) {
       return res.status(404).json({ success: false, message: 'Location not found.' });
     }
@@ -226,13 +224,11 @@ router.put('/:id', protect, adminOnly, (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid GPS coordinates.' });
     }
 
-    const update = db.prepare(`
+    await db.execute(`
       UPDATE locations
       SET name = ?, address = ?, latitude = ?, longitude = ?, radius_meters = ?, is_active = ?
       WHERE id = ?
-    `);
-
-    update.run(
+    `, [
       name !== undefined ? name.trim() : existing.name,
       address !== undefined ? address.trim() : existing.address,
       lat,
@@ -240,9 +236,9 @@ router.put('/:id', protect, adminOnly, (req, res) => {
       radius,
       active,
       locationId
-    );
+    ]);
 
-    const updated = db.prepare(`SELECT * FROM locations WHERE id = ?`).get(locationId);
+    const updated = await db.queryOne(`SELECT * FROM locations WHERE id = ?`, [locationId]);
 
     res.json({
       success: true,
@@ -260,12 +256,11 @@ router.put('/:id', protect, adminOnly, (req, res) => {
  * @desc    Deactivate a location
  * @access  Private (Admin / CEO only)
  */
-router.delete('/:id', protect, adminOnly, (req, res) => {
+router.delete('/:id', protect, adminOnly, async (req, res) => {
   try {
     const locationId = parseInt(req.params.id);
 
-    const update = db.prepare(`UPDATE locations SET is_active = 0 WHERE id = ?`);
-    const result = update.run(locationId);
+    const result = await db.execute(`UPDATE locations SET is_active = 0 WHERE id = ?`, [locationId]);
 
     if (result.changes === 0) {
       return res.status(404).json({ success: false, message: 'Location not found.' });
