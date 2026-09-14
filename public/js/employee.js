@@ -289,11 +289,11 @@ const EmployeeController = {
 
       if (res.success) {
         if (res.hasCheckedIn) {
-          const time = res.checkInRecord.server_timestamp.split('T')[1].substring(0, 5);
+          const time = formatDisplayTime(res.checkInRecord.server_timestamp);
           alertBox.className = 'attendance-alert-box alert-success';
           alertBox.innerHTML = `
             <i class="fa-solid fa-circle-check"></i>
-            <strong>Present Today:</strong> You checked in at <b>${time} UTC</b> (${res.checkInRecord.status}).
+            <strong>Present Today:</strong> You checked in at <b>${time}</b> (${res.checkInRecord.status}).
           `;
           alertBox.classList.remove('hidden');
 
@@ -418,12 +418,12 @@ const EmployeeController = {
           statusBadge = `<span class="badge-status status-rejected"><i class="fa-solid fa-ban"></i> Rejected</span>`;
         }
 
-        const timeStr = r.server_timestamp.replace('T', ' ').substring(11, 19);
+        const timeStr = formatDisplayTime(r.server_timestamp);
 
         return `
           <tr>
             <td><strong>${r.work_date}</strong></td>
-            <td>${timeStr} UTC</td>
+            <td><i class="fa-regular fa-clock" style="opacity:0.65; font-size:0.75rem;"></i> <strong>${timeStr}</strong></td>
             <td><span class="tag-pill">${r.check_type}</span></td>
             <td>${statusBadge}</td>
             <td>${r.distance_meters} m</td>

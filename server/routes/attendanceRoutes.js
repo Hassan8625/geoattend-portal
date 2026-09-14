@@ -12,14 +12,27 @@ function isLateCheckIn(serverDate) {
   try {
     const startTimeSetting = db.prepare(`SELECT value FROM system_settings WHERE key = 'work_start_time'`).get();
     const graceSetting = db.prepare(`SELECT value FROM system_settings WHERE key = 'late_grace_minutes'`).get();
+    const tzSetting = db.prepare(`SELECT value FROM system_settings WHERE key = 'company_timezone'`).get();
+    const timeZone = (tzSetting && tzSetting.value) ? tzSetting.value : 'Asia/Karachi';
 
     const [startH, startM] = (startTimeSetting ? startTimeSetting.value : '09:00').split(':').map(Number);
     const graceMinutes = graceSetting ? parseInt(graceSetting.value) : 15;
 
-    const threshold = new Date(serverDate);
-    threshold.setHours(startH, startM + graceMinutes, 0, 0);
+    // Evaluate current hour and minute in company timezone (e.g. Asia/Karachi)
+    const formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone,
+      hour: 'numeric',
+      minute: 'numeric',
+      hour12: false
+    });
+    const parts = formatter.formatToParts(serverDate);
+    const currentH = parseInt(parts.find(p => p.type === 'hour').value, 10);
+    const currentM = parseInt(parts.find(p => p.type === 'minute').value, 10);
 
-    return serverDate > threshold;
+    const currentTotalMinutes = currentH * 60 + currentM;
+    const thresholdTotalMinutes = startH * 60 + startM + graceMinutes;
+
+    return currentTotalMinutes > thresholdTotalMinutes;
   } catch (e) {
     return false;
   }
