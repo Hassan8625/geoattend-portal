@@ -4,6 +4,11 @@ entrypoint = "server/server.js"
 [nix]
 channel = "stable-23_11"
 
+[deployment]
+run = ["npm", "start"]
+deploymentTarget = "cloudrun"
+ignorePorts = false
+
 [[ports]]
 localPort = 3000
 externalPort = 80
