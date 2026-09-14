@@ -95,7 +95,7 @@ async function runTests() {
     console.log('✓ Employee login verified. Role: EMPLOYEE');
 
     // Clean test user attendance records for a fresh run
-    db.prepare(`DELETE FROM attendance_records WHERE user_id = ?`).run(empRes.data.user.id);
+    await db.execute(`DELETE FROM attendance_records WHERE user_id = ?`, [empRes.data.user.id]);
 
     // 4. Test Role-Based Security: Employee trying to access Admin endpoint
     console.log('4. Testing Role Security (Employee accessing Admin API)...');
@@ -135,7 +135,7 @@ async function runTests() {
     console.log('7. Testing Check-in WITHIN BOUNDS (Inside Geofence)...');
     // Clear any previous successful check-ins for sarah today to test cleanly, keeping rejected audit
     const today = getLocalDateString(new Date());
-    db.prepare(`DELETE FROM attendance_records WHERE user_id = ? AND work_date = ? AND status IN ('PRESENT', 'LATE')`).run(empRes.data.user.id, today);
+    await db.execute(`DELETE FROM attendance_records WHERE user_id = ? AND work_date = ? AND status IN ('PRESENT', 'LATE')`, [empRes.data.user.id, today]);
 
     const checkInRes = await request('/api/attendance/check-in', {
       method: 'POST',

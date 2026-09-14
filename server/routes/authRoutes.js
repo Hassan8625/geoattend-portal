@@ -25,10 +25,10 @@ router.post('/register', async (req, res) => {
     const trimmedCode = employee_code.trim().toUpperCase();
 
     // Check if email or employee code already exists
-    const existing = db.prepare(`
+    const existing = await db.queryOne(`
       SELECT id, email, employee_code FROM users 
       WHERE email = ? OR employee_code = ?
-    `).get(trimmedEmail, trimmedCode);
+    `, [trimmedEmail, trimmedCode]);
 
     if (existing) {
       if (existing.email === trimmedEmail) {
@@ -40,7 +40,7 @@ router.post('/register', async (req, res) => {
     // Location assignment: if specific location provided, assign it; if 'unassigned' or empty, keep as null for later admin assignment
     let targetLocationId = null;
     if (assigned_location_id && assigned_location_id !== 'unassigned') {
-      const locExists = db.prepare(`SELECT id FROM locations WHERE id = ? AND is_active = 1`).get(parseInt(assigned_location_id));
+      const locExists = await db.queryOne(`SELECT id FROM locations WHERE id = ? AND is_active = 1`, [parseInt(assigned_location_id)]);
       if (locExists) {
         targetLocationId = locExists.id;
       }
@@ -49,12 +49,10 @@ router.post('/register', async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const password_hash = await bcrypt.hash(password, salt);
 
-    const insert = db.prepare(`
+    const result = await db.execute(`
       INSERT INTO users (name, email, password_hash, employee_code, role, assigned_location_id, phone, department)
       VALUES (?, ?, ?, ?, 'EMPLOYEE', ?, ?, ?)
-    `);
-
-    const result = insert.run(
+    `, [
       name.trim(),
       trimmedEmail,
       password_hash,
@@ -62,12 +60,12 @@ router.post('/register', async (req, res) => {
       targetLocationId,
       phone ? phone.trim() : null,
       department ? department.trim() : 'General'
-    );
+    ]);
 
-    const newUser = db.prepare(`
+    const newUser = await db.queryOne(`
       SELECT id, name, email, employee_code, role, assigned_location_id, department, phone
       FROM users WHERE id = ?
-    `).get(result.lastInsertRowid);
+    `, [result.lastInsertRowid]);
 
     const token = generateToken(newUser);
 
@@ -109,14 +107,14 @@ router.post('/login', async (req, res) => {
     const trimmedId = identifier.trim();
 
     // Query by email OR employee_code OR full name
-    const candidates = db.prepare(`
+    const candidates = await db.query(`
       SELECT u.id, u.name, u.email, u.password_hash, u.employee_code, u.role, 
              u.assigned_location_id, u.department, u.phone, u.is_active,
              l.name as location_name, l.latitude as location_lat, l.longitude as location_lng, l.radius_meters
       FROM users u
       LEFT JOIN locations l ON u.assigned_location_id = l.id
       WHERE LOWER(u.email) = LOWER(?) OR UPPER(u.employee_code) = UPPER(?) OR LOWER(u.name) = LOWER(?)
-    `).all(trimmedId, trimmedId, trimmedId);
+    `, [trimmedId, trimmedId, trimmedId]);
 
     if (!candidates || candidates.length === 0) {
       return res.status(401).json({ success: false, message: 'Invalid credentials. User not found.' });
@@ -178,8 +176,8 @@ router.post('/login', async (req, res) => {
  * @desc    Get currently logged in user profile & assigned workplace location
  * @access  Private
  */
-router.get('/me', protect, (req, res) => {
-  const user = db.prepare(`
+router.get('/me', protect, async (req, res) => {
+  const user = await db.queryOne(`
     SELECT u.id, u.name, u.email, u.employee_code, u.role, 
            u.assigned_location_id, u.department, u.phone, u.created_at,
            l.name as location_name, l.address as location_address,
@@ -187,7 +185,7 @@ router.get('/me', protect, (req, res) => {
     FROM users u
     LEFT JOIN locations l ON u.assigned_location_id = l.id
     WHERE u.id = ?
-  `).get(req.user.id);
+  `, [req.user.id]);
 
   if (!user) {
     return res.status(404).json({ success: false, message: 'User not found.' });
