@@ -77,14 +77,14 @@ const AdminController = {
           statusBadge = `<span class="badge-status status-rejected"><i class="fa-solid fa-ban"></i> Rejected</span>`;
         }
 
-        const timeStr = r.server_timestamp.replace('T', ' ').substring(11, 19);
+        const timeStr = formatDisplayTime(r.server_timestamp);
 
         return `
           <tr>
             <td><code class="emp-code-pill">${r.employee_code}</code></td>
             <td><span class="user-cell-name">${r.employee_name}</span></td>
             <td><span class="dept-pill">${r.department || 'General'}</span></td>
-            <td class="text-muted"><i class="fa-regular fa-clock"></i> ${r.work_date} ${timeStr} UTC</td>
+            <td class="text-muted"><i class="fa-regular fa-clock"></i> ${r.work_date} <strong>${timeStr}</strong></td>
             <td><span class="dept-pill">${r.check_type}</span></td>
             <td>${statusBadge}</td>
             <td><strong>${r.distance_meters}m</strong> <span class="text-muted text-xs">/ ${r.allowed_radius || 100}m</span></td>
@@ -765,13 +765,13 @@ function openMapInspectionModal(record) {
   modal.classList.remove('hidden');
 
   const detailsEl = document.getElementById('inspection-details-content');
-  const timeStr = record.server_timestamp.replace('T', ' ').substring(0, 19);
+  const timeStr = formatDisplayTime(record.server_timestamp);
 
   detailsEl.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
       <div><strong>Employee:</strong> ${record.employee_name} (${record.employee_code})</div>
       <div><strong>Department:</strong> ${record.department || 'General'}</div>
-      <div><strong>Timestamp (Server UTC):</strong> ${timeStr}</div>
+      <div><strong>Timestamp (Verified):</strong> ${record.work_date} ${timeStr}</div>
       <div><strong>Verification Status:</strong> <span class="badge-status ${record.status === 'PRESENT' ? 'status-present' : record.status === 'LATE' ? 'status-late' : 'status-rejected'}">${record.status}</span></div>
       <div><strong>GPS Accuracy:</strong> ±${Math.round(record.gps_accuracy)} meters</div>
       <div><strong>Distance from Site Center:</strong> ${record.distance_meters} meters (Allowed: ${record.allowed_radius || 100}m)</div>

@@ -89,6 +89,37 @@ const API = {
 };
 
 /**
+ * Format timestamps into friendly local device time (e.g. "02:40 PM")
+ */
+function formatDisplayTime(timestamp) {
+  if (!timestamp) return '--:--';
+  try {
+    let s = String(timestamp).trim();
+    if (!s.endsWith('Z') && !s.includes('+')) {
+      s = s.replace(' ', 'T') + 'Z';
+    }
+    const d = new Date(s);
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+  } catch (_) {
+    return timestamp;
+  }
+}
+
+function formatDisplayDate(timestamp) {
+  if (!timestamp) return '';
+  try {
+    let s = String(timestamp).trim();
+    if (!s.endsWith('Z') && !s.includes('+')) {
+      s = s.replace(' ', 'T') + 'Z';
+    }
+    const d = new Date(s);
+    return d.toLocaleDateString([], { year: 'numeric', month: '2-digit', day: '2-digit' });
+  } catch (_) {
+    return timestamp;
+  }
+}
+
+/**
  * Global Toast Notification
  */
 function showToast(message, type = 'info', duration = 4000) {
