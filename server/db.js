@@ -76,23 +76,51 @@ function initDB() {
   setSettingStmt.run('auto_check_out_time', '18:00');
   setSettingStmt.run('company_name', 'Enterprise Workplace Solutions');
 
-  // Check if any location exists, seed default if empty
-  const locationCount = db.prepare(`SELECT COUNT(*) as count FROM locations`).get().count;
-  let defaultLocationId = 1;
-  if (locationCount === 0) {
-    const insertLoc = db.prepare(`
-      INSERT INTO locations (name, address, latitude, longitude, radius_meters)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    const result = insertLoc.run(
-      'Headquarters - Main Campus',
-      '100 Tech Boulevard, Innovation District',
-      24.8607,
-      67.0011,
+  // Ensure all actual company workplace sites are permanently seeded
+  const existingLocations = db.prepare(`SELECT name FROM locations`).all().map(l => l.name);
+  const insertLoc = db.prepare(`
+    INSERT INTO locations (name, address, latitude, longitude, radius_meters)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  // 1. CCL - Kot Lakhpat
+  if (!existingLocations.includes('CCL')) {
+    insertLoc.run(
+      'CCL',
+      '65-Industrial Estate, Kot Lakhpat, Quaid e Azam Industrial Estate, Lahore',
+      31.448848,
+      74.332609,
+      60
+    );
+  }
+
+  // 2. Masjid
+  if (!existingLocations.includes('Masjid')) {
+    insertLoc.run(
+      'Masjid',
+      'C7HH+XQ2, Block C PGECHS 2, Lahore, Pakistan',
+      31.429888,
+      74.279391,
+      50
+    );
+  }
+
+  // 3. Main Workplace - Jinnah Town
+  if (!existingLocations.includes('Main Workplace - Jinnah Town')) {
+    insertLoc.run(
+      'Main Workplace - Jinnah Town',
+      'H83C+2VM, Block B Jinnah Town, Lahore, 54000, Pakistan',
+      31.552588,
+      74.322172,
       100
     );
-    defaultLocationId = result.lastInsertRowid;
   }
+
+  // Remove the old dummy Karachi placeholder if present
+  db.prepare(`DELETE FROM locations WHERE name = 'Headquarters - Main Campus'`).run();
+
+  const primaryLoc = db.prepare(`SELECT id FROM locations WHERE is_active = 1 ORDER BY id ASC LIMIT 1`).get();
+  const defaultLocationId = primaryLoc ? primaryLoc.id : 1;
 
   // Check if admin exists, seed default admin & sample employees
   const adminCount = db.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'ADMIN'`).get().count;
