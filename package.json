@@ -8,6 +8,9 @@
     "dev": "node server/server.js",
     "test": "node test/verify_api.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "keywords": [
     "geolocation",
     "attendance",
