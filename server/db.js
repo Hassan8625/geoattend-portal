@@ -20,9 +20,27 @@ if (DATABASE_URL && DATABASE_URL.trim()) {
   // -------------------------------------------------------------
   isPostgres = true;
   const { Pool } = require('pg');
+
+  // Sanitize connection string in case password contains unencoded special characters like '%'
+  let sanitizedUrl = DATABASE_URL.trim();
+  try {
+    const match = sanitizedUrl.match(/^(postgres(?:ql)?:\/\/)([^@]+)@(.+)$/i);
+    if (match) {
+      const prefix = match[1];
+      const auth = match[2];
+      const rest = match[3];
+      const colonIdx = auth.indexOf(':');
+      if (colonIdx !== -1) {
+        const user = auth.substring(0, colonIdx);
+        let pass = auth.substring(colonIdx + 1);
+        pass = pass.replace(/%(?![0-9a-fA-F]{2})/g, '%25');
+        sanitizedUrl = `${prefix}${user}:${pass}@${rest}`;
+      }
+    }
+  } catch (_) {}
   
   pool = new Pool({
-    connectionString: DATABASE_URL,
+    connectionString: sanitizedUrl,
     ssl: { rejectUnauthorized: false }
   });
 
@@ -30,9 +48,20 @@ if (DATABASE_URL && DATABASE_URL.trim()) {
     console.error('[DB] Unexpected error on idle Postgres client:', err);
   });
 
-  console.log('====================================================');
-  console.log(' [DB] Connected to Supabase Cloud PostgreSQL!');
-  console.log('====================================================');
+  // Verify connection on startup
+  pool.query('SELECT NOW()').then(() => {
+    console.log('====================================================');
+    console.log(' [DB] Connected to Supabase Cloud PostgreSQL successfully!');
+    console.log('====================================================');
+  }).catch((err) => {
+    console.error('====================================================');
+    console.error(' [DB ERROR] Supabase connection failed:', err.message);
+    if (sanitizedUrl.includes('db.') && (err.message.includes('ENOTFOUND') || err.message.includes('ETIMEDOUT'))) {
+      console.error(' [DB HINT] Direct host db.xxxx.supabase.co is IPv6-only.');
+      console.error(' On Replit, use the Supabase Pooler URI: aws-0-[region].pooler.supabase.com:6543');
+    }
+    console.error('====================================================');
+  });
 
   db = {
     isPostgres: true,
