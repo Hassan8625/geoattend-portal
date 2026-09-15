@@ -353,7 +353,7 @@ const EmployeeController = {
     }
 
     // Measure distance to workplace center
-    const dist = haversineDistance(
+    const dist = calculateClientHaversine(
       this.currentCoords.lat,
       this.currentCoords.lng,
       this.assignedLocation.latitude,
