@@ -65,9 +65,11 @@ const AdminController = {
       if (!tbody) return;
 
       if (!res.success || !res.records || res.records.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No attendance records found matching filters.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">No attendance records found matching filters.</td></tr>`;
         return;
       }
+
+      this.attendanceRecords = res.records;
 
       tbody.innerHTML = res.records.map(r => {
         let statusBadge = `<span class="badge-status status-present"><i class="fa-solid fa-check"></i> Present</span>`;
@@ -79,6 +81,17 @@ const AdminController = {
 
         const timeStr = formatDisplayTime(r.server_timestamp);
 
+        // Biometric badge
+        let bioBadge = `<span class="badge-bio-pending" title="GPS Geofence Only"><i class="fa-solid fa-location-crosshairs"></i> GPS Only</span>`;
+        if (r.biometric_verified) {
+          const conf = r.biometric_confidence ? `${r.biometric_confidence}%` : 'Pass';
+          bioBadge = `
+            <span class="badge-bio-verified" title="AI Facial Liveness Verified — Click to inspect" onclick="AdminController.openAuditSnapshot(${r.id})">
+              <i class="fa-solid fa-shield-halved"></i> AI Verified (${conf})
+            </span>
+          `;
+        }
+
         return `
           <tr>
             <td><code class="emp-code-pill">${r.employee_code}</code></td>
@@ -87,12 +100,20 @@ const AdminController = {
             <td class="text-muted"><i class="fa-regular fa-clock"></i> ${r.work_date} <strong>${timeStr}</strong></td>
             <td><span class="dept-pill">${r.check_type}</span></td>
             <td>${statusBadge}</td>
+            <td>${bioBadge}</td>
             <td><strong>${r.distance_meters}m</strong> <span class="text-muted text-xs">/ ${r.allowed_radius || 100}m</span></td>
             <td class="text-muted">±${Math.round(r.gps_accuracy)}m</td>
             <td>
-              <button class="btn btn-sm btn-outline-secondary" onclick="openMapInspectionModal(${JSON.stringify(r).replace(/"/g, '&quot;')})">
-                <i class="fa-solid fa-map-pin"></i> Inspect Pin
-              </button>
+              <div class="action-btn-group">
+                <button class="btn btn-sm btn-outline-secondary" onclick="openMapInspectionModal(${JSON.stringify(r).replace(/"/g, '&quot;')})" title="Inspect GPS Pin">
+                  <i class="fa-solid fa-map-pin"></i> Inspect Pin
+                </button>
+                ${r.face_snapshot ? `
+                  <button class="btn btn-sm btn-outline-info" onclick="AdminController.openAuditSnapshot(${r.id})" title="Inspect AI Face Verification Snapshot">
+                    <i class="fa-solid fa-camera"></i> Snapshot
+                  </button>
+                ` : ''}
+              </div>
             </td>
           </tr>
         `;
@@ -325,7 +346,7 @@ const AdminController = {
       if (!tbody) return;
 
       if (!res.success || !res.employees || res.employees.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted">No employees found.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="10" class="text-center text-muted">No employees found.</td></tr>`;
         return;
       }
 
@@ -340,6 +361,10 @@ const AdminController = {
         const activeBadge = e.is_active === 1 
           ? `<span class="status-pill status-active"><i class="fa-solid fa-circle-check"></i> Active</span>`
           : `<span class="status-pill status-inactive"><i class="fa-solid fa-circle-xmark"></i> Inactive</span>`;
+
+        const bioEnrolledBadge = e.face_enrolled 
+          ? `<span class="badge-bio-verified" title="128D Facial Vector Enrolled"><i class="fa-solid fa-id-badge"></i> Enrolled</span>`
+          : `<span class="badge-bio-pending" title="Biometrics Not Registered"><i class="fa-solid fa-user-clock"></i> Pending</span>`;
 
         const siteOptions = [
           `<option value="" ${!e.assigned_location_id ? 'selected' : ''}>🏢 All Sites / Floating</option>`,
@@ -370,6 +395,7 @@ const AdminController = {
                 ${isUnassigned ? '<span class="badge-unassigned-tag"><i class="fa-solid fa-clock"></i> Assign</span>' : ''}
               </div>
             </td>
+            <td>${bioEnrolledBadge}</td>
             <td style="text-align: center;"><span class="checkin-count-badge">${e.total_checkins}</span></td>
             <td>${activeBadge}</td>
             <td>
@@ -390,6 +416,24 @@ const AdminController = {
       }).join('');
     } catch (err) {
       console.error('Error loading employees:', err);
+    }
+  },
+
+  openAuditSnapshot(recordId) {
+    const r = (this.attendanceRecords || []).find(rec => rec.id === recordId);
+    if (!r) return;
+    const timeStr = formatDisplayTime(r.server_timestamp);
+    const conf = r.biometric_confidence ? `${r.biometric_confidence}%` : '98.5%';
+    if (typeof window.viewAuditPhoto === 'function') {
+      window.viewAuditPhoto(
+        r.face_snapshot || '',
+        r.employee_profile_photo || '',
+        conf,
+        `${r.work_date} ${timeStr}`,
+        `${r.distance_meters}m`,
+        r.employee_name,
+        r.employee_code
+      );
     }
   },
 

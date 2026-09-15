@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS users (
   assigned_location_id INTEGER REFERENCES locations(id) ON DELETE SET NULL,
   phone TEXT,
   department TEXT DEFAULT 'General',
+  face_descriptor TEXT, -- JSON array of 128 float values
+  face_enrolled INTEGER NOT NULL DEFAULT 0, -- 1 = enrolled, 0 = pending
+  profile_photo TEXT, -- Reference photo thumbnail (Data URL)
   is_active INTEGER NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
@@ -41,6 +44,9 @@ CREATE TABLE IF NOT EXISTS attendance_records (
   gps_accuracy DOUBLE PRECISION NOT NULL,
   distance_meters INTEGER NOT NULL,
   status TEXT NOT NULL, -- 'PRESENT', 'LATE', 'OUT_OF_BOUNDS_REJECTED'
+  biometric_verified INTEGER NOT NULL DEFAULT 0, -- 1 = Face liveness & match verified, 0 = Geofence only / bypassed
+  biometric_confidence DOUBLE PRECISION, -- Verification confidence percentage (e.g. 96.5)
+  face_snapshot TEXT, -- Audit capture snapshot taken during live check-in
   server_timestamp TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   work_date TEXT NOT NULL, -- 'YYYY-MM-DD'
   device_info TEXT,
@@ -114,3 +120,12 @@ INSERT INTO users (name, email, password_hash, employee_code, role, assigned_loc
     '+92-302-3456789'
   )
 ON CONFLICT (email) DO NOTHING;
+
+-- Migration checks for existing databases:
+ALTER TABLE users ADD COLUMN IF NOT EXISTS face_descriptor TEXT;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS face_enrolled INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS profile_photo TEXT;
+
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS biometric_verified INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS biometric_confidence DOUBLE PRECISION;
+ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS face_snapshot TEXT;

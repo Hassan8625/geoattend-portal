@@ -110,6 +110,7 @@ router.post('/login', async (req, res) => {
     const candidates = await db.query(`
       SELECT u.id, u.name, u.email, u.password_hash, u.employee_code, u.role, 
              u.assigned_location_id, u.department, u.phone, u.is_active,
+             u.face_descriptor, u.face_enrolled, u.profile_photo,
              l.name as location_name, l.latitude as location_lat, l.longitude as location_lng, l.radius_meters
       FROM users u
       LEFT JOIN locations l ON u.assigned_location_id = l.id
@@ -142,6 +143,13 @@ router.post('/login', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
+    let parsedDescriptor = null;
+    try {
+      if (user.face_descriptor) {
+        parsedDescriptor = typeof user.face_descriptor === 'string' ? JSON.parse(user.face_descriptor) : user.face_descriptor;
+      }
+    } catch (_) {}
+
     const userPayload = {
       id: user.id,
       name: user.name,
@@ -150,6 +158,9 @@ router.post('/login', async (req, res) => {
       role: user.role,
       department: user.department,
       phone: user.phone,
+      face_enrolled: !!user.face_enrolled,
+      face_descriptor: parsedDescriptor,
+      profile_photo: user.profile_photo || null,
       assigned_location: user.assigned_location_id ? {
         id: user.assigned_location_id,
         name: user.location_name,
@@ -172,6 +183,74 @@ router.post('/login', async (req, res) => {
 });
 
 /**
+ * @route   POST /api/auth/enroll-face
+ * @desc    Enroll employee 128-dimensional facial biometric template & reference snapshot
+ * @access  Private (Employee or Admin)
+ */
+router.post('/enroll-face', protect, async (req, res) => {
+  try {
+    const { face_descriptor, profile_photo } = req.body || {};
+
+    if (!face_descriptor || !Array.isArray(face_descriptor) || face_descriptor.length !== 128) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid biometric template: exactly 128 facial embedding floats are required.'
+      });
+    }
+
+    const descriptorJson = JSON.stringify(face_descriptor);
+    const photoData = profile_photo && typeof profile_photo === 'string' ? profile_photo : null;
+
+    await db.execute(`
+      UPDATE users 
+      SET face_descriptor = ?, face_enrolled = 1, profile_photo = COALESCE(?, profile_photo)
+      WHERE id = ?
+    `, [descriptorJson, photoData, req.user.id]);
+
+    res.json({
+      success: true,
+      message: 'Facial biometric template successfully enrolled and activated!',
+      face_enrolled: true,
+      profile_photo: photoData
+    });
+  } catch (err) {
+    console.error('Face enrollment error:', err);
+    res.status(500).json({ success: false, message: 'Failed to enroll facial biometric profile.' });
+  }
+});
+
+/**
+ * @route   GET /api/auth/face-status
+ * @desc    Check if current user has an enrolled biometric profile
+ * @access  Private
+ */
+router.get('/face-status', protect, async (req, res) => {
+  try {
+    const row = await db.queryOne(`
+      SELECT face_enrolled, face_descriptor, profile_photo 
+      FROM users WHERE id = ?
+    `, [req.user.id]);
+
+    let descriptor = null;
+    try {
+      if (row && row.face_descriptor) {
+        descriptor = typeof row.face_descriptor === 'string' ? JSON.parse(row.face_descriptor) : row.face_descriptor;
+      }
+    } catch (_) {}
+
+    res.json({
+      success: true,
+      face_enrolled: !!(row && row.face_enrolled),
+      face_descriptor: descriptor,
+      profile_photo: row ? row.profile_photo : null
+    });
+  } catch (err) {
+    console.error('Face status error:', err);
+    res.status(500).json({ success: false, message: 'Error retrieving biometric status.' });
+  }
+});
+
+/**
  * @route   GET /api/auth/me
  * @desc    Get currently logged in user profile & assigned workplace location
  * @access  Private
@@ -180,6 +259,7 @@ router.get('/me', protect, async (req, res) => {
   const user = await db.queryOne(`
     SELECT u.id, u.name, u.email, u.employee_code, u.role, 
            u.assigned_location_id, u.department, u.phone, u.created_at,
+           u.face_enrolled, u.face_descriptor, u.profile_photo,
            l.name as location_name, l.address as location_address,
            l.latitude as location_lat, l.longitude as location_lng, l.radius_meters
     FROM users u
@@ -191,6 +271,13 @@ router.get('/me', protect, async (req, res) => {
     return res.status(404).json({ success: false, message: 'User not found.' });
   }
 
+  let parsedDescriptor = null;
+  try {
+    if (user.face_descriptor) {
+      parsedDescriptor = typeof user.face_descriptor === 'string' ? JSON.parse(user.face_descriptor) : user.face_descriptor;
+    }
+  } catch (_) {}
+
   res.json({
     success: true,
     user: {
@@ -201,6 +288,9 @@ router.get('/me', protect, async (req, res) => {
       role: user.role,
       department: user.department,
       phone: user.phone,
+      face_enrolled: !!user.face_enrolled,
+      face_descriptor: parsedDescriptor,
+      profile_photo: user.profile_photo || null,
       created_at: user.created_at,
       assigned_location: user.assigned_location_id ? {
         id: user.assigned_location_id,
@@ -225,3 +315,4 @@ router.post('/logout', (req, res) => {
 });
 
 module.exports = router;
+

@@ -45,7 +45,17 @@ async function isLateCheckIn(serverDate) {
  */
 router.post('/check-in', protect, async (req, res) => {
   try {
-    const { latitude, longitude, gps_accuracy, location_id, device_info, notes } = req.body || {};
+    const { 
+      latitude, 
+      longitude, 
+      gps_accuracy, 
+      location_id, 
+      device_info, 
+      notes,
+      biometric_verified,
+      biometric_confidence,
+      face_snapshot
+    } = req.body || {};
 
     const lat = parseFloat(latitude);
     const lng = parseFloat(longitude);
@@ -119,8 +129,8 @@ router.post('/check-in', protect, async (req, res) => {
     if (!isInsideGeofence) {
       await db.execute(`
         INSERT INTO attendance_records 
-        (user_id, location_id, check_type, latitude, longitude, gps_accuracy, distance_meters, status, server_timestamp, work_date, device_info, notes)
-        VALUES (?, ?, 'CHECK_IN', ?, ?, ?, ?, 'OUT_OF_BOUNDS_REJECTED', ?, ?, ?, ?)
+        (user_id, location_id, check_type, latitude, longitude, gps_accuracy, distance_meters, status, biometric_verified, biometric_confidence, face_snapshot, server_timestamp, work_date, device_info, notes)
+        VALUES (?, ?, 'CHECK_IN', ?, ?, ?, ?, 'OUT_OF_BOUNDS_REJECTED', 0, NULL, ?, ?, ?, ?, ?)
       `, [
         req.user.id,
         targetLocation.id,
@@ -128,6 +138,7 @@ router.post('/check-in', protect, async (req, res) => {
         lng,
         accuracy,
         distanceMeters,
+        face_snapshot || null,
         serverTimestamp,
         workDate,
         device_info || req.headers['user-agent'] || 'Mobile Browser',
@@ -149,10 +160,14 @@ router.post('/check-in', protect, async (req, res) => {
     const late = await isLateCheckIn(now);
     const finalStatus = late ? 'LATE' : 'PRESENT';
 
+    const isBioVerified = biometric_verified ? 1 : 0;
+    const bioConfidence = biometric_confidence !== undefined ? parseFloat(biometric_confidence) : null;
+    const faceImg = face_snapshot && typeof face_snapshot === 'string' ? face_snapshot : null;
+
     const result = await db.execute(`
       INSERT INTO attendance_records 
-      (user_id, location_id, check_type, latitude, longitude, gps_accuracy, distance_meters, status, server_timestamp, work_date, device_info, notes)
-      VALUES (?, ?, 'CHECK_IN', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (user_id, location_id, check_type, latitude, longitude, gps_accuracy, distance_meters, status, biometric_verified, biometric_confidence, face_snapshot, server_timestamp, work_date, device_info, notes)
+      VALUES (?, ?, 'CHECK_IN', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `, [
       req.user.id,
       targetLocation.id,
@@ -161,6 +176,9 @@ router.post('/check-in', protect, async (req, res) => {
       accuracy,
       distanceMeters,
       finalStatus,
+      isBioVerified,
+      bioConfidence,
+      faceImg,
       serverTimestamp,
       workDate,
       device_info || req.headers['user-agent'] || 'Mobile Browser',
@@ -168,7 +186,7 @@ router.post('/check-in', protect, async (req, res) => {
     ]);
 
     const savedRecord = await db.queryOne(`
-      SELECT a.*, l.name as location_name, u.name as user_name, u.employee_code
+      SELECT a.*, l.name as location_name, u.name as user_name, u.employee_code, u.profile_photo as user_profile_photo
       FROM attendance_records a
       JOIN locations l ON a.location_id = l.id
       JOIN users u ON a.user_id = u.id
@@ -182,8 +200,11 @@ router.post('/check-in', protect, async (req, res) => {
       distanceMeters,
       allowedRadius: targetLocation.radius_meters,
       locationName: targetLocation.name,
+      biometric_verified: isBioVerified,
+      biometric_confidence: bioConfidence,
       serverTimestamp,
-      message: `Verified! Attendance marked as ${finalStatus} at ${targetLocation.name} (${distanceMeters}m from office center).`,
+      message: `Verified! Attendance marked as ${finalStatus} at ${targetLocation.name} (${distanceMeters}m from office center).` + 
+        (isBioVerified ? ` Face Biometrics Confirmed (${bioConfidence}% match).` : ''),
       record: savedRecord
     });
   } catch (err) {
@@ -325,7 +346,8 @@ router.get('/my-history', protect, async (req, res) => {
 
     const records = await db.query(`
       SELECT a.id, a.check_type, a.status, a.latitude, a.longitude, a.distance_meters, 
-             a.gps_accuracy, a.server_timestamp, a.work_date, a.notes,
+             a.gps_accuracy, a.biometric_verified, a.biometric_confidence, a.face_snapshot,
+             a.server_timestamp, a.work_date, a.notes,
              l.name as location_name
       FROM attendance_records a
       LEFT JOIN locations l ON a.location_id = l.id
