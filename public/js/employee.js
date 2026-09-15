@@ -568,7 +568,7 @@ function simulateLocation(type) {
 
 let activeBiometricCallback = null;
 
-function openBiometricScanner() {
+async function openBiometricScanner() {
   const modal = document.getElementById('modal-biometric-scanner');
   if (modal) modal.classList.remove('hidden');
 
@@ -583,13 +583,19 @@ function openBiometricScanner() {
   if (pill1) pill1.classList.remove('active');
   if (pill2) pill2.classList.remove('active');
   if (oval) oval.className = 'bio-oval-target active';
-  if (hudMsg) hudMsg.textContent = 'Starting AI Camera...';
+  if (hudMsg) hudMsg.textContent = 'Loading AI Neural Models...';
 
-  const user = API.getUser() || {};
-  const enrolledDescriptor = user.face_descriptor || null;
+  try {
+    await Biometrics.loadModels((pct, msg) => {
+      if (hudMsg) hudMsg.textContent = `${msg} (${pct}%)`;
+    });
 
-  Biometrics.startCamera(video).then(() => {
+    if (hudMsg) hudMsg.textContent = 'Starting AI Camera...';
+    await Biometrics.startCamera(video);
     if (hudMsg) hudMsg.textContent = 'Position face inside the oval...';
+
+    const user = API.getUser() || {};
+    const enrolledDescriptor = user.face_descriptor || null;
 
     Biometrics.startVerificationLoop(
       video,
@@ -605,7 +611,7 @@ function openBiometricScanner() {
           if (oval) oval.className = 'bio-oval-target active';
           if (hudMsg) hudMsg.textContent = progress.message;
           if (stepTitle) stepTitle.textContent = 'Active Liveness: Blink Twice';
-          if (stepDesc) stepDesc.textContent = `Blinks verified: ${progress.blinkCount}/2 (Eye Aspect Ratio: ${progress.ear || '--'})`;
+          if (stepDesc) stepDesc.textContent = `Blinks verified: ${progress.blinkCount}/2 (EAR: ${progress.ear || '--'})`;
           if (progress.blinkCount >= 1 && pill1) pill1.classList.add('active');
           if (progress.blinkCount >= 2 && pill2) pill2.classList.add('active');
         } else if (progress.phase === 'MATCHING') {
@@ -643,11 +649,11 @@ function openBiometricScanner() {
         closeBiometricScanner();
       }
     );
-  }).catch((err) => {
-    console.error('Camera start error:', err);
+  } catch (err) {
+    console.error('Camera or model start error:', err);
     showToast(err.message, 'error');
-    if (hudMsg) hudMsg.textContent = 'Camera unavailable. Use Demo Simulator below.';
-  });
+    if (hudMsg) hudMsg.textContent = 'Camera / Model unavailable. Use Demo Simulator below.';
+  }
 }
 
 function closeBiometricScanner() {
@@ -686,21 +692,24 @@ function simulateBiometricPass() {
   }
 }
 
-function openFaceEnrollmentModal() {
+async function openFaceEnrollmentModal() {
   const modal = document.getElementById('modal-face-enrollment');
   if (modal) modal.classList.remove('hidden');
 
   const video = document.getElementById('enroll-camera-video');
   const hud = document.getElementById('enroll-hud-msg');
-  if (hud) hud.textContent = 'Starting camera for face capture...';
+  if (hud) hud.textContent = 'Loading AI Neural Models...';
 
-  Biometrics.startCamera(video).then(() => {
+  try {
+    await Biometrics.loadModels();
+    if (hud) hud.textContent = 'Starting camera for face capture...';
+    await Biometrics.startCamera(video);
     if (hud) hud.textContent = 'Look directly at camera in good light, then click Capture.';
-  }).catch((err) => {
+  } catch (err) {
     console.error('Enrollment camera error:', err);
     showToast(err.message, 'error');
     if (hud) hud.textContent = 'Camera unavailable. Use the "Simulate" button for testing.';
-  });
+  }
 }
 
 function closeFaceEnrollmentModal() {
