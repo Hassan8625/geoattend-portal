@@ -2710,3 +2710,344 @@ body.light-theme .btn-outline-info:hover {
   background: rgba(2, 132, 199, 0.08);
   border-color: #0284c7;
 }
+
+/* ==========================================================================
+   AI BIOMETRICS & ACTIVE LIVENESS SCANNER STYLES
+   ========================================================================== */
+
+.bio-camera-container {
+  position: relative;
+  width: 100%;
+  height: 330px;
+  background: #080c14;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 0 20px rgba(99, 102, 241, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#bio-camera-video,
+#enroll-camera-video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1); /* Mirror view for natural interaction */
+}
+
+/* Holographic Laser Sweep */
+.bio-laser-sweep {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, transparent 0%, #06b6d4 50%, transparent 100%);
+  box-shadow: 0 0 16px #06b6d4, 0 0 32px rgba(99, 102, 241, 0.8);
+  pointer-events: none;
+  z-index: 5;
+  animation: laser-sweep 2.4s ease-in-out infinite alternate;
+}
+
+@keyframes laser-sweep {
+  0% { top: 8%; opacity: 0.8; }
+  50% { opacity: 1; }
+  100% { top: 92%; opacity: 0.8; }
+}
+
+/* Futuristic Target Oval Guide */
+.bio-oval-target {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 180px;
+  height: 240px;
+  border-radius: 50%;
+  border: 2px dashed rgba(99, 102, 241, 0.5);
+  pointer-events: none;
+  z-index: 4;
+  transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.bio-oval-target.active {
+  border-color: #06b6d4;
+  border-style: solid;
+  box-shadow: 0 0 25px rgba(6, 182, 212, 0.4);
+}
+
+.bio-oval-target.matched {
+  border-color: #10b981;
+  border-style: solid;
+  box-shadow: 0 0 35px rgba(16, 185, 129, 0.6);
+}
+
+.bio-oval-target.mismatch {
+  border-color: #ef4444;
+  border-style: solid;
+  box-shadow: 0 0 25px rgba(239, 68, 68, 0.5);
+}
+
+/* Corner Sci-Fi Brackets */
+.corner-bracket {
+  position: absolute;
+  width: 16px;
+  height: 16px;
+  border-color: #6366f1;
+  border-style: solid;
+  pointer-events: none;
+}
+.corner-bracket.top-left { top: -4px; left: -4px; border-width: 3px 0 0 3px; border-top-left-radius: 4px; }
+.corner-bracket.top-right { top: -4px; right: -4px; border-width: 3px 3px 0 0; border-top-right-radius: 4px; }
+.corner-bracket.bottom-left { bottom: -4px; left: -4px; border-width: 0 0 3px 3px; border-bottom-left-radius: 4px; }
+.corner-bracket.bottom-right { bottom: -4px; right: -4px; border-width: 0 3px 3px 0; border-bottom-right-radius: 4px; }
+
+/* Status HUD Banner */
+.bio-hud-banner {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(10, 15, 29, 0.88);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 30px;
+  padding: 6px 16px;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  z-index: 6;
+}
+
+/* Active Blink Tracker HUD */
+.bio-blink-hud {
+  position: absolute;
+  top: 14px;
+  left: 14px;
+  z-index: 6;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.bio-blink-hud .blink-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+.blink-pills {
+  display: flex;
+  gap: 6px;
+}
+
+.blink-pill {
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 3px 9px;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.25s ease;
+}
+
+.blink-pill.active {
+  background: rgba(16, 185, 129, 0.25);
+  border-color: #10b981;
+  color: #34d399;
+  font-weight: 600;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
+}
+
+/* Instructions Guidance Box */
+.bio-instructions-box {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  border-radius: 12px;
+  margin-top: 14px;
+}
+
+.bio-step-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.1rem;
+  color: #818cf8;
+  flex-shrink: 0;
+}
+
+.bio-step-content h4 {
+  margin: 0;
+  font-size: 0.92rem;
+  color: #f8fafc;
+}
+
+.bio-step-content p {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+/* ==========================================================================
+   BIOMETRIC AUDIT INSPECTOR COMPARISON MODAL
+   ========================================================================== */
+
+.audit-comparison-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.audit-photo-card {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  padding: 12px;
+  text-align: center;
+}
+
+.audit-photo-card h4 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+  color: #cbd5e1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.audit-photo-wrap {
+  width: 100%;
+  height: 180px;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #090d16;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.audit-photo-wrap img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.audit-photo-meta {
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: #94a3b8;
+}
+
+.audit-confidence-box {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(16, 185, 129, 0.08);
+  border: 1px solid rgba(16, 185, 129, 0.25);
+  border-radius: 12px;
+}
+
+.confidence-bar-bg {
+  width: 100%;
+  height: 8px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.confidence-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #10b981 0%, #06b6d4 100%);
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Biometric badges in tables */
+.badge-bio-verified {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.badge-bio-verified:hover {
+  background: rgba(16, 185, 129, 0.28);
+  transform: translateY(-1px);
+}
+
+.badge-bio-pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-inspect-photo {
+  padding: 2px 7px;
+  font-size: 0.72rem;
+  border-radius: 6px;
+  background: rgba(99, 102, 241, 0.15);
+  color: #818cf8;
+  border: 1px solid rgba(99, 102, 241, 0.3);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.btn-inspect-photo:hover {
+  background: rgba(99, 102, 241, 0.3);
+  color: white;
+}
+
+/* Light Mode Overrides for Biometrics */
+body.light-theme .bio-instructions-box {
+  background: #f1f5f9;
+  border-color: rgba(99, 102, 241, 0.2);
+}
+body.light-theme .bio-step-content h4 {
+  color: #0f172a;
+}
+body.light-theme .audit-photo-card {
+  background: #f8fafc;
+  border-color: rgba(15, 23, 42, 0.08);
+}
+body.light-theme .audit-photo-card h4 {
+  color: #0f172a;
+}
+

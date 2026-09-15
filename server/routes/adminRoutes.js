@@ -76,9 +76,11 @@ router.get('/attendance', async (req, res) => {
 
     let query = `
       SELECT a.id, a.user_id, a.location_id, a.check_type, a.latitude, a.longitude,
-             a.gps_accuracy, a.distance_meters, a.status, a.server_timestamp, a.work_date,
-             a.device_info, a.notes,
+             a.gps_accuracy, a.distance_meters, a.status, 
+             a.biometric_verified, a.biometric_confidence, a.face_snapshot,
+             a.server_timestamp, a.work_date, a.device_info, a.notes,
              u.name as employee_name, u.employee_code, u.department, u.email as employee_email,
+             u.face_enrolled, u.profile_photo as employee_profile_photo,
              l.name as location_name, l.radius_meters as allowed_radius
       FROM attendance_records a
       JOIN users u ON a.user_id = u.id
@@ -134,6 +136,7 @@ router.get('/attendance/export-csv', async (req, res) => {
     let query = `
       SELECT a.id, u.employee_code, u.name as employee_name, u.department, 
              a.work_date, a.server_timestamp, a.check_type, a.status,
+             a.biometric_verified, a.biometric_confidence,
              l.name as location_name, a.distance_meters, a.gps_accuracy,
              a.latitude, a.longitude, a.notes
       FROM attendance_records a
@@ -166,6 +169,8 @@ router.get('/attendance/export-csv', async (req, res) => {
       'Server Timestamp (UTC)',
       'Type',
       'Status',
+      'Biometric Verification',
+      'Biometric Confidence (%)',
       'Verified Location',
       'Distance From Center (m)',
       'GPS Accuracy (m)',
@@ -183,6 +188,8 @@ router.get('/attendance/export-csv', async (req, res) => {
       `"${r.server_timestamp || ''}"`,
       r.check_type,
       r.status,
+      r.biometric_verified ? 'AI LIVENESS VERIFIED' : 'GEOFENCE ONLY',
+      r.biometric_confidence ? `${r.biometric_confidence}%` : 'N/A',
       `"${r.location_name || 'N/A'}"`,
       r.distance_meters,
       r.gps_accuracy,
@@ -212,6 +219,7 @@ router.get('/employees', async (req, res) => {
   try {
     const employees = await db.query(`
       SELECT u.id, u.name, u.email, u.employee_code, u.role, u.department, u.phone, 
+             u.face_enrolled, u.profile_photo,
              u.is_active, u.created_at, u.assigned_location_id,
              l.name as assigned_location_name,
              (SELECT COUNT(*) FROM attendance_records WHERE user_id = u.id AND status IN ('PRESENT', 'LATE')) as total_checkins

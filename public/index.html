@@ -211,7 +211,12 @@
         <div class="portal-welcome-banner glass-panel">
           <div class="welcome-text">
             <h2>Good Day, <span id="emp-welcome-name">Employee</span>! 👋</h2>
-            <p id="emp-site-info">Assigned Workplace: <strong id="emp-assigned-site-name">Loading...</strong></p>
+            <p id="emp-site-info">
+              Assigned Workplace: <strong id="emp-assigned-site-name">Loading...</strong>
+              <span id="emp-bio-status-badge" class="badge badge-warning" style="margin-left: 0.5rem; cursor: pointer; transition: all 0.2s;" onclick="openFaceEnrollmentModal()" title="Click to enroll your face biometric profile">
+                <i class="fa-solid fa-face-smile"></i> Biometrics: Setup
+              </span>
+            </p>
           </div>
           <div class="clock-card">
             <div id="live-digital-clock" class="digital-clock">09:00:00 AM</div>
@@ -224,7 +229,7 @@
           <div class="sim-banner-header">
             <div class="sim-label">
               <i class="fa-solid fa-wand-magic-sparkles"></i>
-              <span>GPS Testing & Simulation Mode</span>
+              <span>GPS & AI Testing Mode</span>
             </div>
             <div class="toggle-switch">
               <input type="checkbox" id="toggle-sim-mode" onchange="toggleSimulationMode(this.checked)">
@@ -232,7 +237,7 @@
             </div>
           </div>
           <div id="sim-controls" class="sim-controls hidden">
-            <p class="sim-hint">Simulate employee location to test geofencing boundaries instantly:</p>
+            <p class="sim-hint">Simulate employee location and biometrics to test attendance boundaries instantly:</p>
             <div class="sim-buttons-row">
               <button type="button" class="btn btn-sm btn-outline-success" onclick="simulateLocation('INSIDE')">
                 <i class="fa-solid fa-circle-check"></i> Simulate Inside Office (15m)
@@ -242,6 +247,9 @@
               </button>
               <button type="button" class="btn btn-sm btn-outline-secondary" onclick="simulateLocation('PERIMETER')">
                 <i class="fa-solid fa-bullseye"></i> Simulate Near Boundary (85m)
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-primary" onclick="openFaceEnrollmentModal()">
+                <i class="fa-solid fa-camera"></i> Test Face Setup
               </button>
             </div>
           </div>
@@ -291,6 +299,10 @@
             <div class="gps-meta-item">
               <i class="fa-solid fa-shield-halved"></i>
               <span>Anti-Spoofing: <strong class="text-success">Active</strong></span>
+            </div>
+            <div class="gps-meta-item">
+              <i class="fa-solid fa-face-viewfinder"></i>
+              <span>AI Biometrics: <strong class="text-primary" id="gps-bio-readout">Enabled</strong></span>
             </div>
           </div>
 
@@ -492,6 +504,7 @@
                     <th>Verified Timestamp</th>
                     <th>Check Type</th>
                     <th>Status</th>
+                    <th>AI Biometrics</th>
                     <th>Site Center Distance</th>
                     <th>GPS Accuracy</th>
                     <th>Actions</th>
@@ -499,7 +512,7 @@
                 </thead>
                 <tbody id="admin-attendance-tbody">
                   <tr>
-                    <td colspan="9" class="text-center text-muted">Loading attendance logs...</td>
+                    <td colspan="10" class="text-center text-muted">Loading attendance logs...</td>
                   </tr>
                 </tbody>
               </table>
@@ -600,6 +613,7 @@
                     <th>Role</th>
                     <th>Department</th>
                     <th>Assigned Site</th>
+                    <th>AI Biometrics</th>
                     <th style="text-align: center;">Check-Ins</th>
                     <th>Status</th>
                     <th>Actions</th>
@@ -607,7 +621,7 @@
                 </thead>
                 <tbody id="admin-employees-tbody">
                   <tr>
-                    <td colspan="9" class="text-center text-muted">Loading employee directory...</td>
+                    <td colspan="10" class="text-center text-muted">Loading employee directory...</td>
                   </tr>
                 </tbody>
               </table>
@@ -977,9 +991,166 @@
     </div>
   </div>
 
+  <!-- Modal: AI Biometric Scanner & Liveness Verification -->
+  <div id="modal-biometric-scanner" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel" style="max-width: 520px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <i class="fa-solid fa-face-viewfinder text-primary" style="font-size:1.35rem;"></i>
+          <div>
+            <h3 style="margin:0; font-size:1.15rem;">AI Biometric Liveness Verification</h3>
+            <span class="badge badge-accent" style="font-size:0.7rem; margin-top:2px;">
+              <i class="fa-solid fa-shield-halved"></i> Active Anti-Spoofing
+            </span>
+          </div>
+        </div>
+        <button class="btn-close" onclick="closeBiometricScanner()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.25rem;">
+        
+        <!-- Live Video Viewport with Holographic Scanner & Oval Target -->
+        <div class="bio-camera-container">
+          <video id="bio-camera-video" autoplay playsinline muted></video>
+          
+          <!-- Animated Oval Target Guide -->
+          <div class="bio-oval-target" id="bio-oval-target">
+            <div class="oval-border-glow"></div>
+            <div class="corner-bracket top-left"></div>
+            <div class="corner-bracket top-right"></div>
+            <div class="corner-bracket bottom-left"></div>
+            <div class="corner-bracket bottom-right"></div>
+          </div>
+
+          <!-- Holographic Laser Scanner Bar -->
+          <div class="bio-laser-sweep" id="bio-laser-sweep"></div>
+
+          <!-- Live Status HUD Banner -->
+          <div class="bio-hud-banner" id="bio-hud-banner">
+            <i class="fa-solid fa-circle-notch fa-spin" id="bio-hud-icon"></i>
+            <span id="bio-hud-msg">Initializing AI Camera...</span>
+          </div>
+
+          <!-- Live Blink Counter HUD -->
+          <div class="bio-blink-hud" id="bio-blink-hud">
+            <span class="blink-label">Active Liveness</span>
+            <div class="blink-pills">
+              <span class="blink-pill" id="pill-blink-1"><i class="fa-solid fa-eye"></i> Blink 1</span>
+              <span class="blink-pill" id="pill-blink-2"><i class="fa-solid fa-eye"></i> Blink 2</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Instructions Guidance Box -->
+        <div class="bio-instructions-box" id="bio-instructions-box">
+          <div class="bio-step-icon"><i class="fa-solid fa-expand text-primary"></i></div>
+          <div class="bio-step-content">
+            <h4 id="bio-instruction-title">Position Face in Oval Target</h4>
+            <p id="bio-instruction-desc">Hold phone or device steady at eye level in good lighting.</p>
+          </div>
+        </div>
+
+        <!-- Testing / Demo Bypass Row for Presentation -->
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; padding-top:0.75rem; border-top:1px solid rgba(255,255,255,0.08);">
+          <button type="button" class="btn btn-sm btn-outline-warning" onclick="simulateBiometricPass()" title="Test bypass for FYP presentation without webcam">
+            <i class="fa-solid fa-wand-magic-sparkles"></i> Demo Simulator (Bypass Camera)
+          </button>
+          <button type="button" class="btn btn-sm btn-ghost text-muted" onclick="closeBiometricScanner()">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: First-Time Face Enrollment -->
+  <div id="modal-face-enrollment" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel" style="max-width: 480px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <i class="fa-solid fa-user-astronaut text-primary" style="font-size:1.35rem;"></i>
+          <div>
+            <h3 style="margin:0; font-size:1.15rem;">Face Biometric Enrollment</h3>
+            <span class="badge badge-primary" style="font-size:0.7rem;">128-D Neural Embedding</span>
+          </div>
+        </div>
+        <button class="btn-close" onclick="closeFaceEnrollmentModal()">&times;</button>
+      </div>
+      <div class="modal-body text-center" style="padding: 1.25rem;">
+        <div class="bio-camera-container" style="height: 280px; margin-bottom: 1rem;">
+          <video id="enroll-camera-video" autoplay playsinline muted></video>
+          <div class="bio-oval-target active">
+            <div class="oval-border-glow"></div>
+          </div>
+          <div class="bio-hud-banner">
+            <span id="enroll-hud-msg">Position face to activate your biometric profile...</span>
+          </div>
+        </div>
+        <p class="text-muted" style="font-size: 0.85rem; line-height: 1.4; margin-bottom: 1.25rem;">
+          GeoAttend PRO will generate a 128-point mathematical biometric fingerprint. No raw photos are shared — only encrypted mathematical vectors verify your physical presence.
+        </p>
+        <div style="display:flex; gap:0.75rem;">
+          <button type="button" class="btn btn-primary btn-block glow-btn" id="btn-capture-enroll" onclick="captureAndEnrollFace()">
+            <i class="fa-solid fa-camera"></i> Capture & Activate Biometrics
+          </button>
+          <button type="button" class="btn btn-outline-secondary" onclick="simulateEnrollmentPass()" title="Test enrollment without webcam">
+            Simulate
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: CEO / Admin Biometric Audit Photo Inspector -->
+  <div id="modal-audit-photo" class="modal-backdrop hidden">
+    <div class="modal-dialog glass-panel" style="max-width: 640px;">
+      <div class="modal-header">
+        <div style="display:flex; align-items:center; gap:0.6rem;">
+          <i class="fa-solid fa-shield-halved text-success" style="font-size:1.35rem;"></i>
+          <div>
+            <h3 style="margin:0; font-size:1.15rem;">Biometric Audit Inspector</h3>
+            <span class="badge badge-success" id="audit-badge-status">AI Verified Presence</span>
+          </div>
+        </div>
+        <button class="btn-close" onclick="closeAuditModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding: 1.5rem;">
+        <div class="audit-comparison-grid">
+          <div class="audit-photo-card">
+            <h4><i class="fa-solid fa-camera"></i> Check-In Live Snapshot</h4>
+            <div class="audit-photo-wrap">
+              <img id="audit-checkin-img" src="" alt="Check-In Live Photo">
+            </div>
+            <div class="audit-photo-meta" id="audit-checkin-meta">Captured at Geofence</div>
+          </div>
+          <div class="audit-photo-card">
+            <h4><i class="fa-solid fa-id-badge"></i> Enrolled Reference Photo</h4>
+            <div class="audit-photo-wrap">
+              <img id="audit-profile-img" src="" alt="Enrolled Reference Photo">
+            </div>
+            <div class="audit-photo-meta" id="audit-profile-meta">Registered Profile Template</div>
+          </div>
+        </div>
+        
+        <div class="audit-confidence-box">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem;">
+            <span><i class="fa-solid fa-fingerprint"></i> Biometric Neural Match Confidence:</span>
+            <strong class="text-success" id="audit-confidence-readout" style="font-size:1.15rem;">98.4%</strong>
+          </div>
+          <div class="confidence-bar-bg">
+            <div class="confidence-bar-fill" id="audit-confidence-bar" style="width: 98%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Leaflet JS -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   
+  <!-- AI Neural Networks & Biometric Scripts -->
+  <script src="/vendor/face-api.js"></script>
+  <script src="js/biometrics.js"></script>
+
   <!-- Application Client Scripts -->
   <script src="js/api.js"></script>
   <script src="js/employee.js"></script>
@@ -987,3 +1158,4 @@
   <script src="js/app.js"></script>
 </body>
 </html>
+

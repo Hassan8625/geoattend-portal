@@ -46,10 +46,31 @@ const EmployeeController = {
             document.getElementById('gps-radius-readout').textContent = `${this.assignedLocation.radius_meters} m`;
           }
         }
+
+        // Update Face Biometrics status badge
+        this.updateBiometricStatusBadge(!!res.user.face_enrolled);
       }
     } catch (err) {
       console.error('Error loading profile:', err);
       showToast('Could not load assigned workplace location.', 'error');
+    }
+  },
+
+  updateBiometricStatusBadge(isEnrolled) {
+    const badge = document.getElementById('emp-bio-status-badge');
+    const readout = document.getElementById('gps-bio-readout');
+    if (!badge) return;
+
+    if (isEnrolled) {
+      badge.className = 'badge badge-success';
+      badge.innerHTML = '<i class="fa-solid fa-circle-check"></i> Biometrics: Active';
+      badge.title = 'Face biometric profile enrolled and ready';
+      if (readout) readout.textContent = 'Active (Ready)';
+    } else {
+      badge.className = 'badge badge-warning';
+      badge.innerHTML = '<i class="fa-solid fa-camera"></i> Setup Face ID';
+      badge.title = 'Click to enroll your face biometric profile';
+      if (readout) readout.textContent = 'Pending Setup';
     }
   },
 
@@ -326,7 +347,43 @@ const EmployeeController = {
       return;
     }
 
-    setLoading(true, 'Verifying Physical Presence & Anti-Spoofing Check...');
+    if (!this.assignedLocation) {
+      showToast('No assigned workplace location found. Please contact Admin.', 'error');
+      return;
+    }
+
+    // Measure distance to workplace center
+    const dist = haversineDistance(
+      this.currentCoords.lat,
+      this.currentCoords.lng,
+      this.assignedLocation.latitude,
+      this.assignedLocation.longitude
+    );
+
+    // If outside geofence, submit immediately to register rejected audit attempt
+    if (dist > this.assignedLocation.radius_meters) {
+      this.executeCheckIn({ biometric_verified: 0 });
+      return;
+    }
+
+    // Inside geofence! Check if user has enrolled their face
+    const user = API.getUser();
+    if (!user || !user.face_enrolled) {
+      showToast('First-time setup: Please register your face biometrics once to enable check-in.', 'info');
+      openFaceEnrollmentModal();
+      return;
+    }
+
+    // Open Biometric Scanner & Liveness Modal
+    activeBiometricCallback = (bioData) => {
+      this.executeCheckIn(bioData);
+    };
+
+    openBiometricScanner();
+  },
+
+  async executeCheckIn(bioData = {}) {
+    setLoading(true, 'Recording Physical Presence & Biometric Verification...');
 
     try {
       const payload = {
@@ -334,7 +391,10 @@ const EmployeeController = {
         longitude: this.currentCoords.lng,
         gps_accuracy: this.currentAccuracy,
         location_id: this.assignedLocation ? this.assignedLocation.id : null,
-        device_info: navigator.userAgent
+        device_info: navigator.userAgent,
+        biometric_verified: bioData.biometric_verified ? 1 : 0,
+        biometric_confidence: bioData.biometric_confidence || null,
+        face_snapshot: bioData.face_snapshot || null
       };
 
       const res = await API.request('/api/attendance/check-in', {
@@ -357,12 +417,14 @@ const EmployeeController = {
 
       // Update alert box with rejection details
       const alertBox = document.getElementById('attendance-status-alert');
-      alertBox.className = 'attendance-alert-box alert-danger';
-      alertBox.innerHTML = `
-        <i class="fa-solid fa-triangle-exclamation"></i>
-        <strong>Verification Failed:</strong> ${errMsg}
-      `;
-      alertBox.classList.remove('hidden');
+      if (alertBox) {
+        alertBox.className = 'attendance-alert-box alert-danger';
+        alertBox.innerHTML = `
+          <i class="fa-solid fa-triangle-exclamation"></i>
+          <strong>Verification Failed:</strong> ${errMsg}
+        `;
+        alertBox.classList.remove('hidden');
+      }
     }
   },
 
@@ -406,7 +468,7 @@ const EmployeeController = {
       if (!tbody) return;
 
       if (!res.success || !res.records || res.records.length === 0) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-muted">No attendance logs found yet.</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">No attendance logs found yet.</td></tr>`;
         return;
       }
 
@@ -420,12 +482,22 @@ const EmployeeController = {
 
         const timeStr = formatDisplayTime(r.server_timestamp);
 
+        // Biometric badge
+        let bioBadge = `<span class="badge-bio-pending" title="Geofence GPS verified"><i class="fa-solid fa-location-crosshairs"></i> GPS Only</span>`;
+        if (r.biometric_verified) {
+          const confText = r.biometric_confidence ? `${r.biometric_confidence}%` : 'Pass';
+          bioBadge = `<span class="badge-bio-verified" title="AI Facial Liveness Confirmed" onclick="viewAuditPhoto('${encodeURIComponent(r.face_snapshot || '')}', '${confText}', '${timeStr}', '${r.distance_meters}m')">
+            <i class="fa-solid fa-face-viewfinder"></i> Match ${confText}
+          </span>`;
+        }
+
         return `
           <tr>
             <td><strong>${r.work_date}</strong></td>
             <td><i class="fa-regular fa-clock" style="opacity:0.65; font-size:0.75rem;"></i> <strong>${timeStr}</strong></td>
             <td><span class="tag-pill">${r.check_type}</span></td>
             <td>${statusBadge}</td>
+            <td>${bioBadge}</td>
             <td>${r.distance_meters} m</td>
             <td>${r.location_name || 'Assigned Site'}</td>
           </tr>
@@ -489,3 +561,335 @@ function simulateLocation(type) {
     showToast('Simulated Location: Near Geofence Boundary (~85m)', 'info');
   }
 }
+
+/* ==========================================================================
+   AI BIOMETRICS MODAL CONTROLLER & EVENT HANDLERS
+   ========================================================================== */
+
+let activeBiometricCallback = null;
+
+function openBiometricScanner() {
+  const modal = document.getElementById('modal-biometric-scanner');
+  if (modal) modal.classList.remove('hidden');
+
+  const video = document.getElementById('bio-camera-video');
+  const hudMsg = document.getElementById('bio-hud-msg');
+  const pill1 = document.getElementById('pill-blink-1');
+  const pill2 = document.getElementById('pill-blink-2');
+  const stepTitle = document.getElementById('bio-instruction-title');
+  const stepDesc = document.getElementById('bio-instruction-desc');
+  const oval = document.getElementById('bio-oval-target');
+
+  if (pill1) pill1.classList.remove('active');
+  if (pill2) pill2.classList.remove('active');
+  if (oval) oval.className = 'bio-oval-target active';
+  if (hudMsg) hudMsg.textContent = 'Starting AI Camera...';
+
+  const user = API.getUser() || {};
+  const enrolledDescriptor = user.face_descriptor || null;
+
+  Biometrics.startCamera(video).then(() => {
+    if (hudMsg) hudMsg.textContent = 'Position face inside the oval...';
+
+    Biometrics.startVerificationLoop(
+      video,
+      enrolledDescriptor,
+      // onProgress
+      (progress) => {
+        if (progress.phase === 'POSITION') {
+          if (oval) oval.className = 'bio-oval-target active';
+          if (hudMsg) hudMsg.textContent = progress.message;
+          if (stepTitle) stepTitle.textContent = 'Center Face in Target Oval';
+          if (stepDesc) stepDesc.textContent = 'Hold steady at eye level in good lighting.';
+        } else if (progress.phase === 'LIVENESS') {
+          if (oval) oval.className = 'bio-oval-target active';
+          if (hudMsg) hudMsg.textContent = progress.message;
+          if (stepTitle) stepTitle.textContent = 'Active Liveness: Blink Twice';
+          if (stepDesc) stepDesc.textContent = `Blinks verified: ${progress.blinkCount}/2 (Eye Aspect Ratio: ${progress.ear || '--'})`;
+          if (progress.blinkCount >= 1 && pill1) pill1.classList.add('active');
+          if (progress.blinkCount >= 2 && pill2) pill2.classList.add('active');
+        } else if (progress.phase === 'MATCHING') {
+          if (oval) oval.className = 'bio-oval-target active';
+          if (hudMsg) hudMsg.textContent = 'Liveness Confirmed! Matching 128-D Biometrics...';
+          if (stepTitle) stepTitle.textContent = 'Matching Neural Facial Vector';
+          if (stepDesc) stepDesc.textContent = 'Comparing embedding against enrolled profile.';
+        } else if (progress.phase === 'MISMATCH') {
+          if (oval) oval.className = 'bio-oval-target mismatch';
+          if (hudMsg) hudMsg.textContent = progress.message;
+        }
+      },
+      // onComplete
+      (result) => {
+        if (oval) oval.className = 'bio-oval-target matched';
+        if (hudMsg) hudMsg.textContent = `Verified! (${result.confidence}% Match)`;
+        if (stepTitle) stepTitle.textContent = 'Identity Confirmed!';
+        if (stepDesc) stepDesc.textContent = 'Liveness and biometric embedding verified.';
+
+        setTimeout(() => {
+          closeBiometricScanner();
+          if (activeBiometricCallback) {
+            activeBiometricCallback({
+              biometric_verified: 1,
+              biometric_confidence: result.confidence,
+              face_snapshot: result.snapshot
+            });
+            activeBiometricCallback = null;
+          }
+        }, 900);
+      },
+      // onError
+      (err) => {
+        showToast(err.message || 'Biometric verification error', 'error');
+        closeBiometricScanner();
+      }
+    );
+  }).catch((err) => {
+    console.error('Camera start error:', err);
+    showToast(err.message, 'error');
+    if (hudMsg) hudMsg.textContent = 'Camera unavailable. Use Demo Simulator below.';
+  });
+}
+
+function closeBiometricScanner() {
+  Biometrics.stopCamera();
+  const modal = document.getElementById('modal-biometric-scanner');
+  if (modal) modal.classList.add('hidden');
+}
+
+function simulateBiometricPass() {
+  // Generate sample snapshot on a canvas for testing on PC
+  const canvas = document.createElement('canvas');
+  canvas.width = 240;
+  canvas.height = 240;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, 240, 240);
+  ctx.fillStyle = '#6366f1';
+  ctx.beginPath();
+  ctx.arc(120, 95, 50, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(120, 220, 80, 0, Math.PI * 2);
+  ctx.fill();
+  const mockSnapshot = canvas.toDataURL('image/jpeg', 0.65);
+
+  showToast('✓ AI Liveness & Biometric Verification Simulated (98.4% match)', 'success');
+  closeBiometricScanner();
+
+  if (activeBiometricCallback) {
+    activeBiometricCallback({
+      biometric_verified: 1,
+      biometric_confidence: 98.4,
+      face_snapshot: mockSnapshot
+    });
+    activeBiometricCallback = null;
+  }
+}
+
+function openFaceEnrollmentModal() {
+  const modal = document.getElementById('modal-face-enrollment');
+  if (modal) modal.classList.remove('hidden');
+
+  const video = document.getElementById('enroll-camera-video');
+  const hud = document.getElementById('enroll-hud-msg');
+  if (hud) hud.textContent = 'Starting camera for face capture...';
+
+  Biometrics.startCamera(video).then(() => {
+    if (hud) hud.textContent = 'Look directly at camera in good light, then click Capture.';
+  }).catch((err) => {
+    console.error('Enrollment camera error:', err);
+    showToast(err.message, 'error');
+    if (hud) hud.textContent = 'Camera unavailable. Use the "Simulate" button for testing.';
+  });
+}
+
+function closeFaceEnrollmentModal() {
+  Biometrics.stopCamera();
+  const modal = document.getElementById('modal-face-enrollment');
+  if (modal) modal.classList.add('hidden');
+}
+
+async function captureAndEnrollFace() {
+  const video = document.getElementById('enroll-camera-video');
+  const btn = document.getElementById('btn-capture-enroll');
+  const hud = document.getElementById('enroll-hud-msg');
+
+  if (!video || !video.srcObject) {
+    showToast('Camera is not active.', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Analyzing Face Biometrics...';
+  if (hud) hud.textContent = 'Extracting 128-D neural face embedding...';
+
+  try {
+    await Biometrics.loadModels();
+    const detection = await Biometrics.detectFace(video);
+
+    if (!detection) {
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa-solid fa-camera"></i> Capture & Activate Biometrics';
+      showToast('No face detected. Please position your face in good light and look directly at camera.', 'error');
+      if (hud) hud.textContent = 'No face detected. Try again.';
+      return;
+    }
+
+    const descriptor = Array.from(detection.descriptor);
+    const snapshot = Biometrics.captureSnapshot(video, 280);
+
+    const res = await API.request('/api/auth/enroll-face', {
+      method: 'POST',
+      body: JSON.stringify({
+        face_descriptor: descriptor,
+        profile_photo: snapshot
+      })
+    });
+
+    if (res.success) {
+      const user = API.getUser() || {};
+      user.face_enrolled = true;
+      user.face_descriptor = descriptor;
+      user.profile_photo = snapshot;
+      API.setUser(user);
+
+      EmployeeController.updateBiometricStatusBadge(true);
+      showToast('✓ Face Biometric Profile Enrolled Successfully!', 'success');
+      closeFaceEnrollmentModal();
+    }
+  } catch (err) {
+    console.error('Enrollment error:', err);
+    showToast(err.message || 'Face enrollment failed.', 'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-camera"></i> Capture & Activate Biometrics';
+  }
+}
+
+async function simulateEnrollmentPass() {
+  // Generate synthetic 128-D descriptor for testing on PC
+  const syntheticDescriptor = Array.from({ length: 128 }, () => parseFloat((Math.random() * 0.2 - 0.1).toFixed(4)));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = 200;
+  canvas.height = 200;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#0f172a';
+  ctx.fillRect(0, 0, 200, 200);
+  ctx.fillStyle = '#38bdf8';
+  ctx.beginPath();
+  ctx.arc(100, 80, 45, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(100, 190, 70, 0, Math.PI * 2);
+  ctx.fill();
+  const mockSnapshot = canvas.toDataURL('image/jpeg', 0.65);
+
+  try {
+    const res = await API.request('/api/auth/enroll-face', {
+      method: 'POST',
+      body: JSON.stringify({
+        face_descriptor: syntheticDescriptor,
+        profile_photo: mockSnapshot
+      })
+    });
+
+    if (res.success) {
+      const user = API.getUser() || {};
+      user.face_enrolled = true;
+      user.face_descriptor = syntheticDescriptor;
+      user.profile_photo = mockSnapshot;
+      API.setUser(user);
+
+      EmployeeController.updateBiometricStatusBadge(true);
+      showToast('✓ Simulated Face Biometric Profile Activated!', 'success');
+      closeFaceEnrollmentModal();
+    }
+  } catch (err) {
+    showToast(err.message, 'error');
+  }
+}
+
+function viewAuditPhoto(checkinImgEncoded, profileOrConfidence, confidenceOrTime, timeOrDist, distOrName, employeeName, employeeCode) {
+  const modal = document.getElementById('modal-audit-photo');
+  if (!modal) return;
+
+  let checkinImg = '';
+  try {
+    checkinImg = checkinImgEncoded ? decodeURIComponent(checkinImgEncoded) : '';
+  } catch (e) {
+    checkinImg = checkinImgEncoded || '';
+  }
+
+  let profileImg = '';
+  let confidence = '98.4%';
+  let timeStr = 'Recent';
+  let dist = 'On-site';
+  let empName = '';
+  let empCode = '';
+
+  if (arguments.length <= 4) {
+    // Called from Employee Portal: viewAuditPhoto(checkinImgEncoded, confidence, timeStr, dist)
+    confidence = profileOrConfidence || '98.4%';
+    timeStr = confidenceOrTime || 'Recent';
+    dist = timeOrDist || 'On-site';
+    const user = (typeof API !== 'undefined' && API.getUser()) ? API.getUser() : {};
+    profileImg = user.profile_photo || '';
+    empName = user.name || 'Employee';
+    empCode = user.employee_code || '';
+  } else {
+    // Called from Admin Control Center: viewAuditPhoto(checkinImgEncoded, profileImgEncoded, confidence, timeStr, dist, employeeName, employeeCode)
+    try {
+      profileImg = profileOrConfidence ? decodeURIComponent(profileOrConfidence) : '';
+    } catch (e) {
+      profileImg = profileOrConfidence || '';
+    }
+    confidence = confidenceOrTime || '98.4%';
+    timeStr = timeOrDist || 'Recent';
+    dist = distOrName || 'On-site';
+    empName = employeeName || 'Employee';
+    empCode = employeeCode || '';
+  }
+
+  const img1 = document.getElementById('audit-checkin-img');
+  const img2 = document.getElementById('audit-profile-img');
+  const meta1 = document.getElementById('audit-checkin-meta');
+  const meta2 = document.getElementById('audit-profile-meta');
+  const confText = document.getElementById('audit-confidence-readout');
+  const confBar = document.getElementById('audit-confidence-bar');
+  const badgeStatus = document.getElementById('audit-badge-status');
+
+  const fallbackCheckin = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect fill="%231e293b" width="200" height="200"/><text fill="%2364748b" x="50%" y="50%" text-anchor="middle" font-size="14">No Snapshot</text></svg>';
+  const fallbackProfile = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"><rect fill="%231e293b" width="200" height="200"/><text fill="%2364748b" x="50%" y="50%" text-anchor="middle" font-size="14">No Template</text></svg>';
+
+  if (img1) img1.src = checkinImg || fallbackCheckin;
+  if (img2) img2.src = profileImg || fallbackProfile;
+
+  if (meta1) meta1.textContent = `Check-In Live: ${timeStr} (${dist} from site)`;
+  if (meta2) meta2.textContent = `${empName} (${empCode || 'Staff'})`;
+  if (confText) confText.textContent = confidence;
+  
+  const numConf = parseFloat(confidence) || 98.4;
+  if (confBar) confBar.style.width = `${Math.min(100, Math.max(10, numConf))}%`;
+
+  if (badgeStatus) {
+    if (numConf >= 70) {
+      badgeStatus.className = 'badge badge-success';
+      badgeStatus.textContent = 'AI Verified Presence';
+    } else {
+      badgeStatus.className = 'badge badge-warning';
+      badgeStatus.textContent = 'Low Neural Confidence';
+    }
+  }
+
+  modal.classList.remove('hidden');
+}
+
+function closeAuditModal() {
+  const modal = document.getElementById('modal-audit-photo');
+  if (modal) modal.classList.add('hidden');
+}
+
+window.viewAuditPhoto = viewAuditPhoto;
+window.closeAuditModal = closeAuditModal;
+

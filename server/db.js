@@ -175,6 +175,9 @@ function initSqliteDB(sqliteDb) {
       assigned_location_id INTEGER,
       phone TEXT,
       department TEXT DEFAULT 'General',
+      face_descriptor TEXT,
+      face_enrolled INTEGER NOT NULL DEFAULT 0,
+      profile_photo TEXT,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (assigned_location_id) REFERENCES locations(id) ON DELETE SET NULL
@@ -190,6 +193,9 @@ function initSqliteDB(sqliteDb) {
       gps_accuracy REAL NOT NULL,
       distance_meters REAL NOT NULL,
       status TEXT NOT NULL,
+      biometric_verified INTEGER NOT NULL DEFAULT 0,
+      biometric_confidence REAL,
+      face_snapshot TEXT,
       server_timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       work_date TEXT NOT NULL,
       device_info TEXT,
@@ -203,6 +209,14 @@ function initSqliteDB(sqliteDb) {
       value TEXT NOT NULL
     );
   `);
+
+  // Auto-migration checks for existing SQLite databases
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN face_descriptor TEXT;"); } catch (_) {}
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN face_enrolled INTEGER NOT NULL DEFAULT 0;"); } catch (_) {}
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN profile_photo TEXT;"); } catch (_) {}
+  try { sqliteDb.exec("ALTER TABLE attendance_records ADD COLUMN biometric_verified INTEGER NOT NULL DEFAULT 0;"); } catch (_) {}
+  try { sqliteDb.exec("ALTER TABLE attendance_records ADD COLUMN biometric_confidence REAL;"); } catch (_) {}
+  try { sqliteDb.exec("ALTER TABLE attendance_records ADD COLUMN face_snapshot TEXT;"); } catch (_) {}
 
   const setSettingStmt = sqliteDb.prepare(`INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)`);
   setSettingStmt.run('work_start_time', '09:00');

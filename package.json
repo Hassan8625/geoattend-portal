@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node server/server.js",
     "dev": "node server/server.js",
-    "test": "node test/verify_api.js"
+    "test": "node test/verify_api.js && node test/verify_biometrics_api.js"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -21,6 +21,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@vladmandic/face-api": "^1.7.15",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.6.2",
     "cookie-parser": "^1.4.7",
