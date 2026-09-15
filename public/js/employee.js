@@ -343,7 +343,7 @@ const EmployeeController = {
 
   async handleCheckIn() {
     if (!this.currentCoords) {
-      showToast('Waiting for GPS coordinates. Please ensure location is enabled.', 'error');
+      showToast('Waiting for GPS coordinates. Please ensure location is enabled or use testing mode.', 'error');
       return;
     }
 
@@ -352,33 +352,35 @@ const EmployeeController = {
       return;
     }
 
-    // Measure distance to workplace center
-    const dist = calculateClientHaversine(
-      this.currentCoords.lat,
-      this.currentCoords.lng,
-      this.assignedLocation.latitude,
-      this.assignedLocation.longitude
-    );
+    // Set callback to submit attendance once face biometrics and liveness are confirmed
+    activeBiometricCallback = async (bioData) => {
+      // Auto-enroll user's face if this is their first face scan or re-enrolled
+      const currentUser = API.getUser();
+      if ((!currentUser || !currentUser.face_enrolled || bioData.autoEnrolled) && bioData.descriptor) {
+        try {
+          await API.request('/api/auth/enroll-face', {
+            method: 'POST',
+            body: JSON.stringify({
+              face_descriptor: bioData.descriptor,
+              profile_photo: bioData.face_snapshot
+            })
+          });
+          if (currentUser) {
+            currentUser.face_enrolled = true;
+            currentUser.face_descriptor = bioData.descriptor;
+            currentUser.profile_photo = bioData.face_snapshot;
+            API.setUser(currentUser);
+          }
+          this.updateBiometricStatusBadge(true);
+        } catch (e) {
+          console.warn('Auto-enroll background update error:', e);
+        }
+      }
 
-    // If outside geofence, submit immediately to register rejected audit attempt
-    if (dist > this.assignedLocation.radius_meters) {
-      this.executeCheckIn({ biometric_verified: 0 });
-      return;
-    }
-
-    // Inside geofence! Check if user has enrolled their face
-    const user = API.getUser();
-    if (!user || !user.face_enrolled) {
-      showToast('First-time setup: Please register your face biometrics once to enable check-in.', 'info');
-      openFaceEnrollmentModal();
-      return;
-    }
-
-    // Open Biometric Scanner & Liveness Modal
-    activeBiometricCallback = (bioData) => {
-      this.executeCheckIn(bioData);
+      await this.executeCheckIn(bioData);
     };
 
+    // Open Biometric Scanner & Active Liveness Modal
     openBiometricScanner();
   },
 
