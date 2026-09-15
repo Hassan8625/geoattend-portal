@@ -18,11 +18,11 @@ const Biometrics = {
 
   // Liveness Detection Configuration
   LIVENESS_CONFIG: {
-    EAR_CLOSED_THRESHOLD: 0.20,
-    EAR_OPEN_THRESHOLD: 0.26,
+    EAR_CLOSED_THRESHOLD: 0.22, // Natural closed eye EAR threshold
+    EAR_OPEN_THRESHOLD: 0.26,   // Open eye EAR threshold
     REQUIRED_BLINKS: 2,
-    MATCH_DISTANCE_THRESHOLD: 0.55, // Euclidean distance threshold
-    MIN_FACE_SIZE: 110 // Minimum bounding box width in pixels
+    MATCH_DISTANCE_THRESHOLD: 0.58, // Euclidean distance threshold
+    MIN_FACE_SIZE: 80 // Minimum bounding box width in pixels
   },
 
   // State trackers
@@ -234,11 +234,14 @@ const Biometrics = {
     return canvas.toDataURL('image/jpeg', 0.65);
   },
 
-  /**
-   * Detect face with landmarks and 128-D descriptor from live video
-   */
   async detectFace(videoElement) {
-    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 });
+    if (!videoElement || videoElement.videoWidth === 0 || videoElement.readyState < 2) {
+      return null;
+    }
+    if (!this.modelsLoaded) {
+      await this.loadModels();
+    }
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.25 });
     return await faceapi
       .detectSingleFace(videoElement, options)
       .withFaceLandmarks()
@@ -305,11 +308,20 @@ const Biometrics = {
    * ACTIVE LIVENESS & VERIFICATION PIPELINE
    * =========================================================================
    */
-  startVerificationLoop(videoElement, enrolledDescriptor, onProgress, onComplete, onError) {
+  async startVerificationLoop(videoElement, enrolledDescriptor, onProgress, onComplete, onError) {
     this.blinkCount = 0;
     this.eyeState = 'OPEN';
     this.lastBlinkTime = 0;
     this.isScanning = true;
+
+    if (!this.modelsLoaded) {
+      if (onProgress) onProgress({ phase: 'POSITION', message: 'Loading neural models...' });
+      try {
+        await this.loadModels();
+      } catch (e) {
+        console.error('Failed to load models:', e);
+      }
+    }
 
     let consecutiveMatchFrames = 0;
     let livenessConfirmed = false;
