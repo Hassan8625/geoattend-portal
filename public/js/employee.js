@@ -84,10 +84,10 @@ const EmployeeController = {
       zoomControl: true
     });
 
-    // High-resolution OpenStreetMap tiles
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '&copy; OpenStreetMap contributors'
+    // High-resolution reliable map tiles via Esri World Street Map (Global CDN, no watermark, free)
+    L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+      maxZoom: 18,
+      attribution: 'Tiles &copy; Esri &mdash; Source: Esri, DeLorme, NAVTEQ, USGS'
     }).addTo(this.map);
 
     // Render Office Geofence Circle
