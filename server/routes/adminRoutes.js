@@ -325,6 +325,7 @@ router.put('/employees/:id', async (req, res) => {
     }
 
     const finalActive = is_active !== undefined ? (isDeactivating ? 0 : 1) : existing.is_active;
+    const targetRole = role !== undefined ? (role === 'ADMIN' ? 'ADMIN' : 'EMPLOYEE') : existing.role;
 
     await db.execute(`
       UPDATE users 
@@ -336,7 +337,7 @@ router.put('/employees/:id', async (req, res) => {
       department !== undefined ? department.trim() : existing.department,
       phone !== undefined ? phone.trim() : existing.phone,
       assigned_location_id !== undefined ? (assigned_location_id ? parseInt(assigned_location_id) : null) : existing.assigned_location_id,
-      role !== undefined ? role : existing.role,
+      targetRole,
       finalActive,
       finalActive,
       employeeId

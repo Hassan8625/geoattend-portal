@@ -14,9 +14,7 @@ if (!JWT_SECRET || INSECURE_DEFAULTS.includes(JWT_SECRET) || JWT_SECRET.length <
   console.error(' Current status: ' + (!JWT_SECRET ? 'MISSING' : INSECURE_DEFAULTS.includes(JWT_SECRET) ? 'INSECURE DEFAULT' : 'TOO SHORT (<32 chars)'));
   console.error(' Please set JWT_SECRET in your environment or .env file.');
   console.error('====================================================');
-  if (process.env.NODE_ENV === 'production' || !JWT_SECRET || INSECURE_DEFAULTS.includes(JWT_SECRET)) {
-    throw new Error('Fatal: JWT_SECRET environment variable is missing or insecure. Server boot aborted.');
-  }
+  throw new Error('Fatal: JWT_SECRET environment variable is missing, insecure, or too short (<32 chars). Server boot aborted.');
 }
 
 const JWT_EXPIRES_IN = '7d';

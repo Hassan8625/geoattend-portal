@@ -115,9 +115,6 @@ router.post('/resolve-code', protect, adminOnly, async (req, res) => {
 });
 
 /**
- * @route   GET /api/locations
- * @desc    Get office / site locations (public returns active, admin returns all)
-/**
  * @route   GET /api/locations/options
  * @desc    Public endpoint for registration dropdown (id and name only, no coordinates or radius leaked)
  * @access  Public

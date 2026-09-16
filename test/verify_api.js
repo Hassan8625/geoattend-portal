@@ -222,6 +222,7 @@ async function runTests() {
         await db.execute(`DELETE FROM attendance_records WHERE user_id = ?`, [uid]);
       }
       await db.execute(`DELETE FROM users WHERE email IN ('test_admin@company.com', 'test_sarah@company.com') OR employee_code IN ('TEST-ADM', 'TEST-EMP-101')`);
+      await db.execute(`DELETE FROM locations WHERE name = 'Test HQ'`);
     } catch (_) {}
     if (server) server.close();
   }

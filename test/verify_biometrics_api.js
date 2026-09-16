@@ -269,6 +269,7 @@ async function runBiometricTests() {
         await db.execute(`DELETE FROM attendance_records WHERE user_id = ?`, [uid]);
       }
       await db.execute(`DELETE FROM users WHERE email IN ('bio_test_emp@company.com', 'bio_test_admin@company.com')`);
+      await db.execute(`DELETE FROM locations WHERE name = 'Test HQ'`);
     } catch (_) {}
     if (server) server.close();
   }

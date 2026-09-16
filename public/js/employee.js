@@ -14,9 +14,6 @@ const EmployeeController = {
   userMarker: null,
   distanceLine: null,
 
-  isSimMode: false,
-  simCoords: null,
-
   async init() {
     console.log('Initializing Employee Portal...');
     await this.loadUserProfileAndLocation();
@@ -98,13 +95,6 @@ const EmployeeController = {
       this.renderOfficeGeofence();
     }
 
-    // Allow clicking on map during simulation mode to reposition test user
-    this.map.on('click', (e) => {
-      if (this.isSimMode) {
-        this.setSimulatedPosition(e.latlng.lat, e.latlng.lng);
-        showToast(`Simulated GPS moved to [${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}]`, 'info');
-      }
-    });
   },
 
   renderOfficeGeofence() {
@@ -175,8 +165,6 @@ const EmployeeController = {
   },
 
   onGPSSuccess(position) {
-    if (this.isSimMode) return; // Ignore real GPS while simulation is active
-
     const lat = position.coords.latitude;
     const lng = position.coords.longitude;
     const accuracy = position.coords.accuracy || 10;
@@ -188,8 +176,6 @@ const EmployeeController = {
   },
 
   onGPSError(error) {
-    if (this.isSimMode) return;
-
     let msg = 'GPS signal unavailable.';
     if (error.code === 1) {
       msg = 'Location permission denied. Please allow location access in browser settings.';

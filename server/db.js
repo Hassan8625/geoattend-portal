@@ -39,9 +39,7 @@ if (DATABASE_URL && DATABASE_URL.trim()) {
     }
   } catch (_) {}
   
-  const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false' 
-    ? false 
-    : (process.env.NODE_ENV === 'production');
+  const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== 'false';
 
   pool = new Pool({
     connectionString: sanitizedUrl,
