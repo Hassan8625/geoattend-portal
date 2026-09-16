@@ -1,16 +1,40 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
+const rateLimit = require('express-rate-limit');
+const jwt = require('jsonwebtoken');
 const db = require('../db');
-const { generateToken, protect } = require('../auth');
+const { generateToken, protect, JWT_SECRET } = require('../auth');
 
 const router = express.Router();
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many authentication attempts. Please try again in 15 minutes.'
+  }
+});
+
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: 'Too many accounts registered from this IP. Please try again later.'
+  }
+});
 
 /**
  * @route   POST /api/auth/register
  * @desc    Register a new employee
  * @access  Public
  */
-router.post('/register', async (req, res) => {
+router.post('/register', registerLimiter, async (req, res) => {
   try {
     const { name, email, password, employee_code, phone, department, assigned_location_id } = req.body;
 
@@ -18,6 +42,13 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'Name, email, employee code, and password are required.'
+      });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters long.'
       });
     }
 
@@ -31,10 +62,10 @@ router.post('/register', async (req, res) => {
     `, [trimmedEmail, trimmedCode]);
 
     if (existing) {
-      if (existing.email === trimmedEmail) {
-        return res.status(400).json({ success: false, message: 'An account with this email already exists.' });
-      }
-      return res.status(400).json({ success: false, message: 'This Employee Code is already registered.' });
+      return res.status(400).json({
+        success: false,
+        message: 'Registration failed. An account matching these employee details is already registered or unavailable.'
+      });
     }
 
     // Location assignment: if specific location provided, assign it; if 'unassigned' or empty, keep as null for later admin assignment
@@ -93,7 +124,7 @@ router.post('/register', async (req, res) => {
  * @desc    Authenticate user & get token
  * @access  Public
  */
-router.post('/login', async (req, res) => {
+router.post('/login', loginLimiter, async (req, res) => {
   try {
     const { identifier, password } = req.body; // identifier can be email or employee_code
 
@@ -110,7 +141,7 @@ router.post('/login', async (req, res) => {
     const candidates = await db.query(`
       SELECT u.id, u.name, u.email, u.password_hash, u.employee_code, u.role, 
              u.assigned_location_id, u.department, u.phone, u.is_active,
-             u.face_descriptor, u.face_enrolled, u.profile_photo,
+             u.token_version, u.face_enrolled, u.profile_photo,
              l.name as location_name, l.latitude as location_lat, l.longitude as location_lng, l.radius_meters
       FROM users u
       LEFT JOIN locations l ON u.assigned_location_id = l.id
@@ -118,7 +149,7 @@ router.post('/login', async (req, res) => {
     `, [trimmedId, trimmedId, trimmedId]);
 
     if (!candidates || candidates.length === 0) {
-      return res.status(401).json({ success: false, message: 'Invalid credentials. User not found.' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials. Please verify your identifier and password.' });
     }
 
     let user = null;
@@ -131,7 +162,7 @@ router.post('/login', async (req, res) => {
     }
 
     if (!user) {
-      return res.status(401).json({ success: false, message: 'Invalid password. Please try again.' });
+      return res.status(401).json({ success: false, message: 'Invalid credentials. Please verify your identifier and password.' });
     }
 
     const token = generateToken(user);
@@ -143,13 +174,6 @@ router.post('/login', async (req, res) => {
       maxAge: 7 * 24 * 60 * 60 * 1000
     });
 
-    let parsedDescriptor = null;
-    try {
-      if (user.face_descriptor) {
-        parsedDescriptor = typeof user.face_descriptor === 'string' ? JSON.parse(user.face_descriptor) : user.face_descriptor;
-      }
-    } catch (_) {}
-
     const userPayload = {
       id: user.id,
       name: user.name,
@@ -159,7 +183,6 @@ router.post('/login', async (req, res) => {
       department: user.department,
       phone: user.phone,
       face_enrolled: !!user.face_enrolled,
-      face_descriptor: parsedDescriptor,
       profile_photo: user.profile_photo || null,
       assigned_location: user.assigned_location_id ? {
         id: user.assigned_location_id,
@@ -198,6 +221,15 @@ router.post('/enroll-face', protect, async (req, res) => {
       });
     }
 
+    // Gating: If already enrolled, employees cannot self-overwrite biometrics without admin reset
+    const existing = await db.queryOne(`SELECT face_enrolled FROM users WHERE id = ?`, [req.user.id]);
+    if (existing && existing.face_enrolled && req.user.role !== 'ADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Biometric profile is already enrolled and locked. Please contact an administrator to request a biometric reset.'
+      });
+    }
+
     const descriptorJson = JSON.stringify(face_descriptor);
     const photoData = profile_photo && typeof profile_photo === 'string' ? profile_photo : null;
 
@@ -227,21 +259,13 @@ router.post('/enroll-face', protect, async (req, res) => {
 router.get('/face-status', protect, async (req, res) => {
   try {
     const row = await db.queryOne(`
-      SELECT face_enrolled, face_descriptor, profile_photo 
+      SELECT face_enrolled, profile_photo 
       FROM users WHERE id = ?
     `, [req.user.id]);
-
-    let descriptor = null;
-    try {
-      if (row && row.face_descriptor) {
-        descriptor = typeof row.face_descriptor === 'string' ? JSON.parse(row.face_descriptor) : row.face_descriptor;
-      }
-    } catch (_) {}
 
     res.json({
       success: true,
       face_enrolled: !!(row && row.face_enrolled),
-      face_descriptor: descriptor,
       profile_photo: row ? row.profile_photo : null
     });
   } catch (err) {
@@ -259,7 +283,7 @@ router.get('/me', protect, async (req, res) => {
   const user = await db.queryOne(`
     SELECT u.id, u.name, u.email, u.employee_code, u.role, 
            u.assigned_location_id, u.department, u.phone, u.created_at,
-           u.face_enrolled, u.face_descriptor, u.profile_photo,
+           u.face_enrolled, u.profile_photo,
            l.name as location_name, l.address as location_address,
            l.latitude as location_lat, l.longitude as location_lng, l.radius_meters
     FROM users u
@@ -270,13 +294,6 @@ router.get('/me', protect, async (req, res) => {
   if (!user) {
     return res.status(404).json({ success: false, message: 'User not found.' });
   }
-
-  let parsedDescriptor = null;
-  try {
-    if (user.face_descriptor) {
-      parsedDescriptor = typeof user.face_descriptor === 'string' ? JSON.parse(user.face_descriptor) : user.face_descriptor;
-    }
-  } catch (_) {}
 
   res.json({
     success: true,
@@ -289,7 +306,6 @@ router.get('/me', protect, async (req, res) => {
       department: user.department,
       phone: user.phone,
       face_enrolled: !!user.face_enrolled,
-      face_descriptor: parsedDescriptor,
       profile_photo: user.profile_photo || null,
       created_at: user.created_at,
       assigned_location: user.assigned_location_id ? {
@@ -306,10 +322,26 @@ router.get('/me', protect, async (req, res) => {
 
 /**
  * @route   POST /api/auth/logout
- * @desc    Log out user and clear cookie
+ * @desc    Log out user, clear cookie, and revoke token
  * @access  Public
  */
-router.post('/logout', (req, res) => {
+router.post('/logout', async (req, res) => {
+  try {
+    let token = null;
+    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
+      token = req.headers.authorization.split(' ')[1];
+    } else if (req.cookies && req.cookies.token) {
+      token = req.cookies.token;
+    }
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded && decoded.id) {
+          await db.execute(`UPDATE users SET token_version = token_version + 1 WHERE id = ?`, [decoded.id]);
+        }
+      } catch (_) {}
+    }
+  } catch (_) {}
   res.clearCookie('token');
   res.json({ success: true, message: 'Logged out successfully.' });
 });

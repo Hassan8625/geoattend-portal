@@ -117,35 +117,41 @@ router.post('/resolve-code', protect, adminOnly, async (req, res) => {
 /**
  * @route   GET /api/locations
  * @desc    Get office / site locations (public returns active, admin returns all)
- * @access  Public / Private
+/**
+ * @route   GET /api/locations/options
+ * @desc    Public endpoint for registration dropdown (id and name only, no coordinates or radius leaked)
+ * @access  Public
  */
-router.get('/', async (req, res) => {
+router.get('/options', async (req, res) => {
   try {
-    let isAdmin = false;
-    let token = null;
+    const locations = await db.query(`SELECT id, name FROM locations WHERE is_active = 1 ORDER BY id ASC`);
+    res.json({ success: true, locations });
+  } catch (err) {
+    console.error('Error fetching location options:', err);
+    res.status(500).json({ success: false, message: 'Server error loading location options.' });
+  }
+});
 
-    if (req.headers.authorization && req.headers.authorization.startsWith('Bearer ')) {
-      token = req.headers.authorization.split(' ')[1];
-    } else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-    }
+/**
+ * @route   GET /api/locations
+ * @desc    Get authorized locations (Admins see all sites + coordinates; Employees see their assigned site)
+ * @access  Private
+ */
+router.get('/', protect, async (req, res) => {
+  try {
+    const isAdmin = req.user.role === 'ADMIN';
 
-    if (token) {
-      try {
-        const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded && decoded.role === 'ADMIN') {
-          isAdmin = true;
-        }
-      } catch (e) {
-        // Token invalid, fall back to public view
+    let locations = [];
+    if (isAdmin) {
+      locations = await db.query(`SELECT id, name, address, latitude, longitude, radius_meters, is_active, created_at FROM locations ORDER BY id ASC`);
+    } else {
+      if (req.user.assigned_location_id) {
+        locations = await db.query(`SELECT id, name, address, latitude, longitude, radius_meters, is_active, created_at FROM locations WHERE id = ? AND is_active = 1`, [req.user.assigned_location_id]);
+      } else {
+        // For unassigned employees, do not leak coordinates or radius of all enterprise sites
+        locations = await db.query(`SELECT id, name, address, is_active FROM locations WHERE is_active = 1 ORDER BY id ASC`);
       }
     }
-
-    const query = isAdmin
-      ? `SELECT id, name, address, latitude, longitude, radius_meters, is_active, created_at FROM locations ORDER BY id ASC`
-      : `SELECT id, name, address, latitude, longitude, radius_meters, is_active, created_at FROM locations WHERE is_active = 1 ORDER BY id ASC`;
-
-    const locations = await db.query(query);
 
     res.json({ success: true, locations });
   } catch (err) {
@@ -222,6 +228,10 @@ router.put('/:id', protect, adminOnly, async (req, res) => {
 
     if (isNaN(lat) || lat < -90 || lat > 90 || isNaN(lng) || lng < -180 || lng > 180) {
       return res.status(400).json({ success: false, message: 'Invalid GPS coordinates.' });
+    }
+
+    if (radius_meters !== undefined && (isNaN(radius) || radius < 10 || radius > 5000)) {
+      return res.status(400).json({ success: false, message: 'Geofence radius must be between 10m and 5000m.' });
     }
 
     await db.execute(`

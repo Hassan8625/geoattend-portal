@@ -39,9 +39,13 @@ if (DATABASE_URL && DATABASE_URL.trim()) {
     }
   } catch (_) {}
   
+  const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false' 
+    ? false 
+    : (process.env.NODE_ENV === 'production');
+
   pool = new Pool({
     connectionString: sanitizedUrl,
-    ssl: { rejectUnauthorized: false }
+    ssl: { rejectUnauthorized }
   });
 
   pool.on('error', (err) => {
@@ -80,7 +84,7 @@ if (DATABASE_URL && DATABASE_URL.trim()) {
 
     async execute(sql, params = []) {
       let pgSql = toPostgresSql(sql);
-      if (/^\s*insert\s+into/i.test(sql) && !/returning/i.test(sql)) {
+      if (/^\s*insert\s+into\s+(?!system_settings\b)/i.test(sql) && !/returning/i.test(sql)) {
         pgSql += ' RETURNING id';
       }
       const res = await pool.query(pgSql, params);
@@ -178,6 +182,7 @@ function initSqliteDB(sqliteDb) {
       face_descriptor TEXT,
       face_enrolled INTEGER NOT NULL DEFAULT 0,
       profile_photo TEXT,
+      token_version INTEGER NOT NULL DEFAULT 1,
       is_active INTEGER NOT NULL DEFAULT 1,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (assigned_location_id) REFERENCES locations(id) ON DELETE SET NULL
@@ -214,9 +219,12 @@ function initSqliteDB(sqliteDb) {
   try { sqliteDb.exec("ALTER TABLE users ADD COLUMN face_descriptor TEXT;"); } catch (_) {}
   try { sqliteDb.exec("ALTER TABLE users ADD COLUMN face_enrolled INTEGER NOT NULL DEFAULT 0;"); } catch (_) {}
   try { sqliteDb.exec("ALTER TABLE users ADD COLUMN profile_photo TEXT;"); } catch (_) {}
+  try { sqliteDb.exec("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 1;"); } catch (_) {}
   try { sqliteDb.exec("ALTER TABLE attendance_records ADD COLUMN biometric_verified INTEGER NOT NULL DEFAULT 0;"); } catch (_) {}
   try { sqliteDb.exec("ALTER TABLE attendance_records ADD COLUMN biometric_confidence REAL;"); } catch (_) {}
   try { sqliteDb.exec("ALTER TABLE attendance_records ADD COLUMN face_snapshot TEXT;"); } catch (_) {}
+  try { sqliteDb.exec("DROP INDEX IF EXISTS idx_attendance_user_workdate_type;"); } catch (_) {}
+  try { sqliteDb.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_unique_success ON attendance_records(user_id, work_date, check_type) WHERE status IN ('PRESENT', 'LATE');"); } catch (_) {}
 
   const setSettingStmt = sqliteDb.prepare(`INSERT OR IGNORE INTO system_settings (key, value) VALUES (?, ?)`);
   setSettingStmt.run('work_start_time', '09:00');
@@ -269,47 +277,34 @@ function initSqliteDB(sqliteDb) {
 
   const adminCount = sqliteDb.prepare(`SELECT COUNT(*) as count FROM users WHERE role = 'ADMIN'`).get().count;
   if (adminCount === 0) {
+    const crypto = require('crypto');
+    const tempAdminPassword = crypto.randomBytes(12).toString('base64url');
     const salt = bcrypt.genSaltSync(10);
-    const adminHash = bcrypt.hashSync('admin123', salt);
-    const empHash = bcrypt.hashSync('employee123', salt);
+    const adminHash = bcrypt.hashSync(tempAdminPassword, salt);
 
     const insertUser = sqliteDb.prepare(`
-      INSERT INTO users (name, email, password_hash, employee_code, role, assigned_location_id, department, phone)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO users (name, email, password_hash, employee_code, role, assigned_location_id, department, phone, token_version)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
     `);
 
     insertUser.run(
-      'Arthur Vance (CEO / Admin)',
+      'System Administrator',
       'admin@company.com',
       adminHash,
-      'CEO-001',
+      'ADMIN-001',
       'ADMIN',
       defaultLocationId,
       'Executive',
-      '+92-300-1234567'
+      '+00-000-0000000'
     );
 
-    insertUser.run(
-      'Sarah Jenkins',
-      'sarah@company.com',
-      empHash,
-      'EMP-101',
-      'EMPLOYEE',
-      defaultLocationId,
-      'Operations',
-      '+92-301-2345678'
-    );
-
-    insertUser.run(
-      'Michael Chen',
-      'michael@company.com',
-      empHash,
-      'EMP-102',
-      'EMPLOYEE',
-      defaultLocationId,
-      'Engineering',
-      '+92-302-3456789'
-    );
+    console.log('====================================================');
+    console.log(' [SECURITY] Zero existing admin accounts detected.');
+    console.log(' Initial administrator account generated:');
+    console.log(' Email:    admin@company.com');
+    console.log(` Temp Pwd: ${tempAdminPassword}`);
+    console.log(' IMPORTANT: Log in and reset this password immediately.');
+    console.log('====================================================');
   }
 }
 

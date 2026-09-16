@@ -133,10 +133,14 @@ function showToast(message, type = 'info', duration = 4000) {
   if (type === 'success') icon = 'fa-circle-check';
   if (type === 'error') icon = 'fa-triangle-exclamation';
 
-  toast.innerHTML = `
-    <i class="fa-solid ${icon}"></i>
-    <span>${message}</span>
-  `;
+  const iconEl = document.createElement('i');
+  iconEl.className = `fa-solid ${icon}`;
+
+  const spanEl = document.createElement('span');
+  spanEl.textContent = String(message || '');
+
+  toast.appendChild(iconEl);
+  toast.appendChild(spanEl);
 
   container.appendChild(toast);
 

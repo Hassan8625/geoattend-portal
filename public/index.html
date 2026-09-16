@@ -129,24 +129,6 @@
               <span>Sign In to Portal</span>
               <i class="fa-solid fa-arrow-right"></i>
             </button>
-
-            <!-- Quick Demo Credentials Selector -->
-            <div class="demo-logins-box">
-              <div class="demo-box-title">
-                <i class="fa-solid fa-bolt"></i> One-Click Demo Accounts:
-              </div>
-              <div class="demo-pills">
-                <button type="button" class="demo-pill admin-pill" onclick="quickFillLogin('admin@company.com', 'admin123')">
-                  <i class="fa-solid fa-crown"></i> CEO / Admin
-                </button>
-                <button type="button" class="demo-pill emp-pill" onclick="quickFillLogin('sarah@company.com', 'employee123')">
-                  <i class="fa-solid fa-user"></i> Sarah (EMP-101)
-                </button>
-                <button type="button" class="demo-pill emp-pill" onclick="quickFillLogin('michael@company.com', 'employee123')">
-                  <i class="fa-solid fa-user"></i> Michael (EMP-102)
-                </button>
-              </div>
-            </div>
           </form>
 
           <!-- REGISTER FORM -->
@@ -221,40 +203,6 @@
           <div class="clock-card">
             <div id="live-digital-clock" class="digital-clock">09:00:00 AM</div>
             <div id="live-digital-date" class="digital-date">Monday, Sep 14</div>
-          </div>
-        </div>
-
-        <!-- Simulation / Testing Banner (Great for testing on PC / Demonstrating) -->
-        <div class="sim-banner glass-panel">
-          <div class="sim-banner-header">
-            <div class="sim-label">
-              <i class="fa-solid fa-wand-magic-sparkles"></i>
-              <span>GPS & AI Testing Mode</span>
-            </div>
-            <div class="toggle-switch">
-              <input type="checkbox" id="toggle-sim-mode" onchange="toggleSimulationMode(this.checked)">
-              <label for="toggle-sim-mode" title="Toggle between real device GPS and manual coordinate testing"></label>
-            </div>
-          </div>
-          <div id="sim-controls" class="sim-controls hidden">
-            <p class="sim-hint">Simulate employee location and biometrics to test attendance boundaries instantly:</p>
-            <div class="sim-buttons-row">
-              <button type="button" class="btn btn-sm btn-outline-success" onclick="simulateLocation('INSIDE')">
-                <i class="fa-solid fa-circle-check"></i> Simulate Inside Office (15m)
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-danger" onclick="simulateLocation('OUTSIDE')">
-                <i class="fa-solid fa-circle-xmark"></i> Simulate Far Away (1.5km)
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-secondary" onclick="simulateLocation('PERIMETER')">
-                <i class="fa-solid fa-bullseye"></i> Simulate Near Boundary (85m)
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-primary" onclick="openFaceEnrollmentModal()">
-                <i class="fa-solid fa-camera"></i> Test Face Setup
-              </button>
-              <button type="button" class="btn btn-sm btn-outline-info" onclick="openBiometricScanner()" title="Directly launch futuristic AI Scanner modal">
-                <i class="fa-solid fa-face-viewfinder"></i> Test AI Scanner
-              </button>
-            </div>
           </div>
         </div>
 
@@ -919,7 +867,7 @@
           </div>
           <div class="form-group">
             <label for="admin-emp-password">Initial Password</label>
-            <input type="password" id="admin-emp-password" minlength="6" value="employee123" required>
+            <input type="password" id="admin-emp-password" minlength="8" placeholder="Minimum 8 characters" required>
           </div>
         </div>
         <div class="modal-footer">
@@ -1052,11 +1000,7 @@
           </div>
         </div>
 
-        <!-- Testing / Demo Bypass Row for Presentation -->
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:1rem; padding-top:0.75rem; border-top:1px solid rgba(255,255,255,0.08);">
-          <button type="button" class="btn btn-sm btn-outline-warning" onclick="simulateBiometricPass()" title="Test bypass for FYP presentation without webcam">
-            <i class="fa-solid fa-wand-magic-sparkles"></i> Demo Simulator (Bypass Camera)
-          </button>
+        <div style="display:flex; justify-content:flex-end; align-items:center; margin-top:1rem; padding-top:0.75rem; border-top:1px solid rgba(255,255,255,0.08);">
           <button type="button" class="btn btn-sm btn-ghost text-muted" onclick="closeBiometricScanner()">
             Cancel
           </button>
@@ -1091,12 +1035,9 @@
         <p class="text-muted" style="font-size: 0.85rem; line-height: 1.4; margin-bottom: 1.25rem;">
           GeoAttend PRO will generate a 128-point mathematical biometric fingerprint. No raw photos are shared — only encrypted mathematical vectors verify your physical presence.
         </p>
-        <div style="display:flex; gap:0.75rem;">
+        <div>
           <button type="button" class="btn btn-primary btn-block glow-btn" id="btn-capture-enroll" onclick="captureAndEnrollFace()">
             <i class="fa-solid fa-camera"></i> Capture & Activate Biometrics
-          </button>
-          <button type="button" class="btn btn-outline-secondary" onclick="simulateEnrollmentPass()" title="Test enrollment without webcam">
-            Simulate
           </button>
         </div>
       </div>

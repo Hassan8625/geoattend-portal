@@ -10,3 +10,6 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      - key: DATABASE_URL
+        sync: false # Set your Supabase / PostgreSQL URI here to persist data across redeploys
+

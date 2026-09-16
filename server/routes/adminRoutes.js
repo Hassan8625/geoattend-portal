@@ -2,7 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
 const { protect, adminOnly } = require('../auth');
-const { getLocalDateString } = require('../geo');
+const { getLocalDateString, getCompanyLocalDateString } = require('../geo');
 
 const router = express.Router();
 
@@ -17,7 +17,7 @@ router.use(adminOnly);
  */
 router.get('/dashboard-stats', async (req, res) => {
   try {
-    const today = getLocalDateString(new Date());
+    const today = await getCompanyLocalDateString(db);
 
     const totalEmpRow = await db.queryOne(`SELECT COUNT(*) as count FROM users WHERE role = 'EMPLOYEE' AND is_active = 1`);
     const totalEmployees = parseInt(totalEmpRow ? totalEmpRow.count : 0);
@@ -106,8 +106,9 @@ router.get('/attendance', async (req, res) => {
     }
 
     if (search) {
-      query += ` AND (u.name LIKE ? OR u.employee_code LIKE ? OR u.department LIKE ?)`;
-      const term = `%${search.trim()}%`;
+      const sanitized = search.trim().replace(/[%_\\]/g, '\\$&');
+      query += ` AND (u.name LIKE ? ESCAPE '\\' OR u.employee_code LIKE ? ESCAPE '\\' OR u.department LIKE ? ESCAPE '\\')`;
+      const term = `%${sanitized}%`;
       params.push(term, term, term);
     }
 
@@ -179,23 +180,32 @@ router.get('/attendance/export-csv', async (req, res) => {
       'Audit Notes'
     ];
 
+    function sanitizeCsvCell(val) {
+      if (val === null || val === undefined) return '""';
+      let str = String(val);
+      if (/^[=+\-@\t\r]/.test(str)) {
+        str = "'" + str;
+      }
+      return `"${str.replace(/"/g, '""')}"`;
+    }
+
     const rows = records.map(r => [
       r.id,
-      `"${r.employee_code || ''}"`,
-      `"${r.employee_name || ''}"`,
-      `"${r.department || ''}"`,
-      `"${r.work_date || ''}"`,
-      `"${r.server_timestamp || ''}"`,
+      sanitizeCsvCell(r.employee_code),
+      sanitizeCsvCell(r.employee_name),
+      sanitizeCsvCell(r.department),
+      sanitizeCsvCell(r.work_date),
+      sanitizeCsvCell(r.server_timestamp),
       r.check_type,
       r.status,
       r.biometric_verified ? 'AI LIVENESS VERIFIED' : 'GEOFENCE ONLY',
       r.biometric_confidence ? `${r.biometric_confidence}%` : 'N/A',
-      `"${r.location_name || 'N/A'}"`,
+      sanitizeCsvCell(r.location_name || 'N/A'),
       r.distance_meters,
       r.gps_accuracy,
       r.latitude,
       r.longitude,
-      `"${(r.notes || '').replace(/"/g, '""')}"`
+      sanitizeCsvCell(r.notes || '')
     ]);
 
     const csvData = [headers.join(','), ...rows.map(row => row.join(','))].join('\r\n');
@@ -246,6 +256,10 @@ router.post('/employees', async (req, res) => {
 
     if (!name || !email || !password || !employee_code) {
       return res.status(400).json({ success: false, message: 'Name, email, password, and employee code are required.' });
+    }
+
+    if (password.length < 8) {
+      return res.status(400).json({ success: false, message: 'Password must be at least 8 characters long.' });
     }
 
     const trimmedEmail = email.trim().toLowerCase();
@@ -302,14 +316,20 @@ router.put('/employees/:id', async (req, res) => {
       return res.status(404).json({ success: false, message: 'Employee not found.' });
     }
 
+    const isDeactivating = is_active !== undefined && (is_active === 0 || is_active === false || String(is_active) === '0');
+    const isDemoting = role !== undefined && role !== 'ADMIN';
+
     // Protect CEO / primary admin account from self-demotion or deactivation
-    if (existing.id === req.user.id && (is_active === 0 || role === 'EMPLOYEE')) {
+    if (existing.id === req.user.id && (isDeactivating || isDemoting)) {
       return res.status(400).json({ success: false, message: 'You cannot deactivate or demote your own administrator account.' });
     }
 
+    const finalActive = is_active !== undefined ? (isDeactivating ? 0 : 1) : existing.is_active;
+
     await db.execute(`
       UPDATE users 
-      SET name = ?, department = ?, phone = ?, assigned_location_id = ?, role = ?, is_active = ?
+      SET name = ?, department = ?, phone = ?, assigned_location_id = ?, role = ?, is_active = ?,
+          token_version = CASE WHEN ? = 0 THEN token_version + 1 ELSE token_version END
       WHERE id = ?
     `, [
       name !== undefined ? name.trim() : existing.name,
@@ -317,7 +337,8 @@ router.put('/employees/:id', async (req, res) => {
       phone !== undefined ? phone.trim() : existing.phone,
       assigned_location_id !== undefined ? (assigned_location_id ? parseInt(assigned_location_id) : null) : existing.assigned_location_id,
       role !== undefined ? role : existing.role,
-      is_active !== undefined ? (is_active ? 1 : 0) : existing.is_active,
+      finalActive,
+      finalActive,
       employeeId
     ]);
 
@@ -331,6 +352,35 @@ router.put('/employees/:id', async (req, res) => {
   } catch (err) {
     console.error('Error updating employee:', err);
     res.status(500).json({ success: false, message: 'Failed to update employee.' });
+  }
+});
+
+/**
+ * @route   POST /api/admin/employees/:id/reset-biometrics
+ * @desc    Reset an employee's face enrollment to allow re-enrollment
+ * @access  Private (Admin / CEO only)
+ */
+router.post('/employees/:id/reset-biometrics', async (req, res) => {
+  try {
+    const employeeId = parseInt(req.params.id);
+    const existing = await db.queryOne(`SELECT id, name FROM users WHERE id = ?`, [employeeId]);
+    if (!existing) {
+      return res.status(404).json({ success: false, message: 'Employee not found.' });
+    }
+
+    await db.execute(`
+      UPDATE users
+      SET face_descriptor = NULL, face_enrolled = 0
+      WHERE id = ?
+    `, [employeeId]);
+
+    res.json({
+      success: true,
+      message: `Biometric profile for "${existing.name}" has been reset. The employee can now enroll a new face profile.`
+    });
+  } catch (err) {
+    console.error('Error resetting employee biometrics:', err);
+    res.status(500).json({ success: false, message: 'Failed to reset employee biometrics.' });
   }
 });
 

@@ -76,18 +76,50 @@ function validateCoordinates(lat, lng, accuracy) {
 }
 
 /**
- * Format Date to YYYY-MM-DD in local time
+ * Format Date to YYYY-MM-DD in company timezone (defaults to Asia/Karachi)
  */
-function getLocalDateString(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function getLocalDateString(date = new Date(), timeZone = 'Asia/Karachi') {
+  try {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+    return formatter.format(date);
+  } catch (_) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+}
+
+/**
+ * Retrieve configured company timezone from database system_settings
+ */
+async function getCompanyTimezone(dbInstance) {
+  try {
+    const row = await dbInstance.queryOne(`SELECT value FROM system_settings WHERE key = 'company_timezone'`);
+    return (row && row.value) ? row.value : 'Asia/Karachi';
+  } catch (_) {
+    return 'Asia/Karachi';
+  }
+}
+
+/**
+ * Format Date to YYYY-MM-DD in company timezone (dynamically fetched from system_settings)
+ */
+async function getCompanyLocalDateString(dbInstance, date = new Date()) {
+  const tz = await getCompanyTimezone(dbInstance);
+  return getLocalDateString(date, tz);
 }
 
 module.exports = {
   haversineDistance,
   checkGeofence,
   validateCoordinates,
-  getLocalDateString
+  getLocalDateString,
+  getCompanyTimezone,
+  getCompanyLocalDateString
 };

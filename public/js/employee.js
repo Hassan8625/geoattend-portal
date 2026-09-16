@@ -129,7 +129,7 @@ const EmployeeController = {
 
     this.officeMarker = L.marker([lat, lng], { icon: officeIcon })
       .addTo(this.map)
-      .bindPopup(`<b>${this.assignedLocation.name}</b><br>Allowed Geofence Radius: ${radius}m`)
+      .bindPopup(`<b>${escapeHtml(this.assignedLocation.name)}</b><br>Allowed Geofence Radius: ${radius}m`)
       .openPopup();
 
     // Geofence perimeter boundary circle
@@ -293,14 +293,6 @@ const EmployeeController = {
     if (statusText) statusText.textContent = text;
   },
 
-  setSimulatedPosition(lat, lng) {
-    this.isSimMode = true;
-    this.simCoords = { lat, lng };
-    this.currentCoords = { lat, lng };
-    this.currentAccuracy = 5; // Perfect simulated GPS accuracy
-    this.updateUIWithCoordinates(lat, lng, 5);
-  },
-
   async checkTodayAttendanceStatus() {
     try {
       const res = await API.request('/api/attendance/today-status');
@@ -354,29 +346,6 @@ const EmployeeController = {
 
     // Set callback to submit attendance once face biometrics and liveness are confirmed
     activeBiometricCallback = async (bioData) => {
-      // Auto-enroll user's face if this is their first face scan or re-enrolled
-      const currentUser = API.getUser();
-      if ((!currentUser || !currentUser.face_enrolled || bioData.autoEnrolled) && bioData.descriptor) {
-        try {
-          await API.request('/api/auth/enroll-face', {
-            method: 'POST',
-            body: JSON.stringify({
-              face_descriptor: bioData.descriptor,
-              profile_photo: bioData.face_snapshot
-            })
-          });
-          if (currentUser) {
-            currentUser.face_enrolled = true;
-            currentUser.face_descriptor = bioData.descriptor;
-            currentUser.profile_photo = bioData.face_snapshot;
-            API.setUser(currentUser);
-          }
-          this.updateBiometricStatusBadge(true);
-        } catch (e) {
-          console.warn('Auto-enroll background update error:', e);
-        }
-      }
-
       await this.executeCheckIn(bioData);
     };
 
@@ -394,9 +363,8 @@ const EmployeeController = {
         gps_accuracy: this.currentAccuracy,
         location_id: this.assignedLocation ? this.assignedLocation.id : null,
         device_info: navigator.userAgent,
-        biometric_verified: bioData.biometric_verified ? 1 : 0,
-        biometric_confidence: bioData.biometric_confidence || null,
-        face_snapshot: bioData.face_snapshot || null
+        face_descriptor: bioData.descriptor || null,
+        face_snapshot: bioData.snapshot || bioData.face_snapshot || null
       };
 
       const res = await API.request('/api/attendance/check-in', {
@@ -495,13 +463,13 @@ const EmployeeController = {
 
         return `
           <tr>
-            <td><strong>${r.work_date}</strong></td>
-            <td><i class="fa-regular fa-clock" style="opacity:0.65; font-size:0.75rem;"></i> <strong>${timeStr}</strong></td>
-            <td><span class="tag-pill">${r.check_type}</span></td>
+            <td><strong>${escapeHtml(r.work_date)}</strong></td>
+            <td><i class="fa-regular fa-clock" style="opacity:0.65; font-size:0.75rem;"></i> <strong>${escapeHtml(timeStr)}</strong></td>
+            <td><span class="tag-pill">${escapeHtml(r.check_type)}</span></td>
             <td>${statusBadge}</td>
             <td>${bioBadge}</td>
-            <td>${r.distance_meters} m</td>
-            <td>${r.location_name || 'Assigned Site'}</td>
+            <td>${escapeHtml(r.distance_meters)} m</td>
+            <td>${escapeHtml(r.location_name || 'Assigned Site')}</td>
           </tr>
         `;
       }).join('');
@@ -527,41 +495,6 @@ function loadEmployeeHistory() {
 function refreshGPSLocation(manual = false) {
   if (manual) showToast('Refreshing GPS Coordinates...', 'info');
   EmployeeController.startGPSTracking();
-}
-
-function toggleSimulationMode(active) {
-  EmployeeController.isSimMode = active;
-  const controls = document.getElementById('sim-controls');
-  if (active) {
-    controls.classList.remove('hidden');
-    showToast('Simulation Mode Active. You can click on the map or use presets.', 'info');
-    // Default to inside office
-    simulateLocation('INSIDE');
-  } else {
-    controls.classList.add('hidden');
-    showToast('Switched back to Real Device Hardware GPS.', 'info');
-    EmployeeController.startGPSTracking();
-  }
-}
-
-function simulateLocation(type) {
-  if (!EmployeeController.assignedLocation) return;
-  const baseLat = EmployeeController.assignedLocation.latitude;
-  const baseLng = EmployeeController.assignedLocation.longitude;
-
-  if (type === 'INSIDE') {
-    // ~15 meters away
-    EmployeeController.setSimulatedPosition(baseLat + 0.0001, baseLng + 0.0001);
-    showToast('Simulated Location: Inside Office (~15m)', 'success');
-  } else if (type === 'OUTSIDE') {
-    // ~1.5 km away
-    EmployeeController.setSimulatedPosition(baseLat + 0.012, baseLng + 0.012);
-    showToast('Simulated Location: Far Away (~1.5km Outside)', 'error');
-  } else if (type === 'PERIMETER') {
-    // ~85 meters away (close to 100m edge)
-    EmployeeController.setSimulatedPosition(baseLat + 0.0007, baseLng + 0.0003);
-    showToast('Simulated Location: Near Geofence Boundary (~85m)', 'info');
-  }
 }
 
 /* ==========================================================================
@@ -597,11 +530,11 @@ async function openBiometricScanner() {
     if (hudMsg) hudMsg.textContent = 'Position face inside the oval...';
 
     const user = API.getUser() || {};
-    const enrolledDescriptor = user.face_descriptor || null;
+    const enrolledTarget = user.face_enrolled ? true : null;
 
     Biometrics.startVerificationLoop(
       video,
-      enrolledDescriptor,
+      enrolledTarget,
       // onProgress
       (progress) => {
         if (progress.phase === 'POSITION') {
@@ -639,7 +572,8 @@ async function openBiometricScanner() {
             activeBiometricCallback({
               biometric_verified: 1,
               biometric_confidence: result.confidence,
-              face_snapshot: result.snapshot
+              face_snapshot: result.snapshot,
+              descriptor: result.descriptor
             });
             activeBiometricCallback = null;
           }
@@ -654,7 +588,7 @@ async function openBiometricScanner() {
   } catch (err) {
     console.error('Camera or model start error:', err);
     showToast(err.message, 'error');
-    if (hudMsg) hudMsg.textContent = 'Camera / Model unavailable. Use Demo Simulator below.';
+    if (hudMsg) hudMsg.textContent = 'Camera / Model unavailable. Please ensure camera access is allowed.';
   }
 }
 
@@ -662,36 +596,6 @@ function closeBiometricScanner() {
   Biometrics.stopCamera();
   const modal = document.getElementById('modal-biometric-scanner');
   if (modal) modal.classList.add('hidden');
-}
-
-function simulateBiometricPass() {
-  // Generate sample snapshot on a canvas for testing on PC
-  const canvas = document.createElement('canvas');
-  canvas.width = 240;
-  canvas.height = 240;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0f172a';
-  ctx.fillRect(0, 0, 240, 240);
-  ctx.fillStyle = '#6366f1';
-  ctx.beginPath();
-  ctx.arc(120, 95, 50, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(120, 220, 80, 0, Math.PI * 2);
-  ctx.fill();
-  const mockSnapshot = canvas.toDataURL('image/jpeg', 0.65);
-
-  showToast('✓ AI Liveness & Biometric Verification Simulated (98.4% match)', 'success');
-  closeBiometricScanner();
-
-  if (activeBiometricCallback) {
-    activeBiometricCallback({
-      biometric_verified: 1,
-      biometric_confidence: 98.4,
-      face_snapshot: mockSnapshot
-    });
-    activeBiometricCallback = null;
-  }
 }
 
 async function openFaceEnrollmentModal() {
@@ -774,50 +678,6 @@ async function captureAndEnrollFace() {
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<i class="fa-solid fa-camera"></i> Capture & Activate Biometrics';
-  }
-}
-
-async function simulateEnrollmentPass() {
-  // Generate synthetic 128-D descriptor for testing on PC
-  const syntheticDescriptor = Array.from({ length: 128 }, () => parseFloat((Math.random() * 0.2 - 0.1).toFixed(4)));
-
-  const canvas = document.createElement('canvas');
-  canvas.width = 200;
-  canvas.height = 200;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#0f172a';
-  ctx.fillRect(0, 0, 200, 200);
-  ctx.fillStyle = '#38bdf8';
-  ctx.beginPath();
-  ctx.arc(100, 80, 45, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(100, 190, 70, 0, Math.PI * 2);
-  ctx.fill();
-  const mockSnapshot = canvas.toDataURL('image/jpeg', 0.65);
-
-  try {
-    const res = await API.request('/api/auth/enroll-face', {
-      method: 'POST',
-      body: JSON.stringify({
-        face_descriptor: syntheticDescriptor,
-        profile_photo: mockSnapshot
-      })
-    });
-
-    if (res.success) {
-      const user = API.getUser() || {};
-      user.face_enrolled = true;
-      user.face_descriptor = syntheticDescriptor;
-      user.profile_photo = mockSnapshot;
-      API.setUser(user);
-
-      EmployeeController.updateBiometricStatusBadge(true);
-      showToast('✓ Simulated Face Biometric Profile Activated!', 'success');
-      closeFaceEnrollmentModal();
-    }
-  } catch (err) {
-    showToast(err.message, 'error');
   }
 }
 

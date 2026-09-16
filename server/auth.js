@@ -1,7 +1,24 @@
 const jwt = require('jsonwebtoken');
 const db = require('./db');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'geo_attendance_secure_jwt_token_key_2026_super_secret';
+const JWT_SECRET = process.env.JWT_SECRET;
+const INSECURE_DEFAULTS = [
+  'geo_attendance_secure_jwt_token_key_2026_super_secret',
+  'geofence_attendance_super_secret_jwt_key_2025_secure'
+];
+
+if (!JWT_SECRET || INSECURE_DEFAULTS.includes(JWT_SECRET) || JWT_SECRET.length < 32) {
+  console.error('====================================================');
+  console.error(' [FATAL SECURITY ERROR] JWT_SECRET is not properly configured!');
+  console.error(' A secure, unique JWT_SECRET of at least 32 characters is required.');
+  console.error(' Current status: ' + (!JWT_SECRET ? 'MISSING' : INSECURE_DEFAULTS.includes(JWT_SECRET) ? 'INSECURE DEFAULT' : 'TOO SHORT (<32 chars)'));
+  console.error(' Please set JWT_SECRET in your environment or .env file.');
+  console.error('====================================================');
+  if (process.env.NODE_ENV === 'production' || !JWT_SECRET || INSECURE_DEFAULTS.includes(JWT_SECRET)) {
+    throw new Error('Fatal: JWT_SECRET environment variable is missing or insecure. Server boot aborted.');
+  }
+}
+
 const JWT_EXPIRES_IN = '7d';
 
 /**
@@ -14,7 +31,8 @@ function generateToken(user) {
       email: user.email,
       role: user.role,
       name: user.name,
-      employee_code: user.employee_code
+      employee_code: user.employee_code,
+      token_version: user.token_version !== undefined ? user.token_version : 1
     },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRES_IN }
@@ -44,12 +62,19 @@ async function protect(req, res, next) {
 
     // Verify user still exists in database and is active
     const user = await db.queryOne(`
-      SELECT id, name, email, employee_code, role, assigned_location_id, department, phone, is_active
+      SELECT id, name, email, employee_code, role, assigned_location_id, department, phone, is_active, token_version
       FROM users WHERE id = ?
     `, [decoded.id]);
 
     if (!user || user.is_active !== 1) {
       return res.status(401).json({ success: false, message: 'Account not found or has been deactivated.' });
+    }
+
+    // Check token revocation version
+    const expectedVersion = user.token_version !== undefined && user.token_version !== null ? user.token_version : 1;
+    const tokenVersion = decoded.token_version !== undefined && decoded.token_version !== null ? decoded.token_version : 1;
+    if (tokenVersion !== expectedVersion) {
+      return res.status(401).json({ success: false, message: 'Session has been invalidated. Please log in again.' });
     }
 
     req.user = user;

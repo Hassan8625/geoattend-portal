@@ -273,10 +273,10 @@ async function populateRegistrationLocations() {
   if (!select) return;
 
   try {
-    const res = await API.request('/api/locations');
+    const res = await API.request('/api/locations/options');
     if (res.success && res.locations && res.locations.length > 0) {
       let html = `<option value="">⏳ Assign Later by Admin / Primary HQ</option>`;
-      html += res.locations.map(l => `<option value="${l.id}">📍 ${l.name} (${l.radius_meters}m radius)</option>`).join('');
+      html += res.locations.map(l => `<option value="${l.id}">📍 ${escapeHtml(l.name)}</option>`).join('');
       select.innerHTML = html;
       // If there is a single active site, pre-select it
       if (res.locations.length === 1) {
@@ -288,10 +288,14 @@ async function populateRegistrationLocations() {
   }
 }
 
-function quickFillLogin(identifier, password) {
-  document.getElementById('login-identifier').value = identifier;
-  document.getElementById('login-password').value = password;
-  showToast(`Auto-filled: ${identifier}`, 'info', 2000);
+function escapeHtml(str) {
+  if (str === null || str === undefined) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function togglePasswordVisibility(fieldId) {

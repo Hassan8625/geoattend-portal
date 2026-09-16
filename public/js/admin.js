@@ -94,18 +94,18 @@ const AdminController = {
 
         return `
           <tr>
-            <td><code class="emp-code-pill">${r.employee_code}</code></td>
-            <td><span class="user-cell-name">${r.employee_name}</span></td>
-            <td><span class="dept-pill">${r.department || 'General'}</span></td>
-            <td class="text-muted"><i class="fa-regular fa-clock"></i> ${r.work_date} <strong>${timeStr}</strong></td>
-            <td><span class="dept-pill">${r.check_type}</span></td>
+            <td><code class="emp-code-pill">${escapeHtml(r.employee_code)}</code></td>
+            <td><span class="user-cell-name">${escapeHtml(r.employee_name)}</span></td>
+            <td><span class="dept-pill">${escapeHtml(r.department || 'General')}</span></td>
+            <td class="text-muted"><i class="fa-regular fa-clock"></i> ${escapeHtml(r.work_date)} <strong>${escapeHtml(timeStr)}</strong></td>
+            <td><span class="dept-pill">${escapeHtml(r.check_type)}</span></td>
             <td>${statusBadge}</td>
             <td>${bioBadge}</td>
-            <td><strong>${r.distance_meters}m</strong> <span class="text-muted text-xs">/ ${r.allowed_radius || 100}m</span></td>
+            <td><strong>${escapeHtml(r.distance_meters)}m</strong> <span class="text-muted text-xs">/ ${escapeHtml(r.allowed_radius || 100)}m</span></td>
             <td class="text-muted">±${Math.round(r.gps_accuracy)}m</td>
             <td>
               <div class="action-btn-group">
-                <button class="btn btn-sm btn-outline-secondary" onclick="openMapInspectionModal(${JSON.stringify(r).replace(/"/g, '&quot;')})" title="Inspect GPS Pin">
+                <button class="btn btn-sm btn-outline-secondary" onclick="AdminController.openInspectionModal(${r.id})" title="Inspect GPS Pin">
                   <i class="fa-solid fa-map-pin"></i> Inspect Pin
                 </button>
                 ${r.face_snapshot ? `
@@ -173,7 +173,7 @@ const AdminController = {
 
   populateLocationDropdowns() {
     const defaultOpt = `<option value="">⏳ Assign Later by Admin / Primary HQ</option>`;
-    const siteOpts = this.locations.map(l => `<option value="${l.id}">📍 ${l.name} (${l.radius_meters}m radius)</option>`).join('');
+    const siteOpts = this.locations.map(l => `<option value="${l.id}">📍 ${escapeHtml(l.name)} (${l.radius_meters}m radius)</option>`).join('');
     const regSelect = document.getElementById('reg-location');
     const adminEmpSelect = document.getElementById('admin-emp-site');
     const editEmpSelect = document.getElementById('edit-emp-site');
@@ -239,7 +239,7 @@ const AdminController = {
       draggable: true
     }).addTo(this.adminMap);
 
-    this.adminOfficeMarker.bindPopup(`<b>${loc.name}</b><br>Drag pin to reposition center.`).openPopup();
+    this.adminOfficeMarker.bindPopup(`<b>${escapeHtml(loc.name)}</b><br>Drag pin to reposition center.`).openPopup();
 
     this.adminOfficeMarker.on('dragend', (e) => {
       const pos = e.target.getLatLng();
@@ -370,7 +370,7 @@ const AdminController = {
           `<option value="" ${!e.assigned_location_id ? 'selected' : ''}>🏢 All Sites / Floating</option>`,
           ...(this.locations || []).map(loc => `
             <option value="${loc.id}" ${e.assigned_location_id === loc.id ? 'selected' : ''}>
-              📍 ${loc.name} (${loc.radius_meters}m)
+              📍 ${escapeHtml(loc.name)} (${loc.radius_meters}m)
             </option>
           `)
         ].join('');
@@ -379,17 +379,17 @@ const AdminController = {
 
         return `
           <tr>
-            <td><code class="emp-code-pill">${e.employee_code}</code></td>
+            <td><code class="emp-code-pill">${escapeHtml(e.employee_code)}</code></td>
             <td>
-              <span class="user-cell-name">${e.name}</span>
+              <span class="user-cell-name">${escapeHtml(e.name)}</span>
               ${isSelf ? '<span class="tag-you">You</span>' : ''}
             </td>
-            <td class="text-secondary-cell">${e.email}</td>
+            <td class="text-secondary-cell">${escapeHtml(e.email)}</td>
             <td>${roleBadge}</td>
-            <td><span class="dept-pill">${e.department || 'General'}</span></td>
+            <td><span class="dept-pill">${escapeHtml(e.department || 'General')}</span></td>
             <td class="location-cell">
               <div class="site-picker-wrap">
-                <select class="site-assign-select" onchange="AdminController.assignEmployeeSite(${e.id}, this.value, '${e.name.replace(/'/g, "\\'")}')" title="Click to assign or change workplace site">
+                <select class="site-assign-select" onchange="AdminController.assignEmployeeSite(${e.id}, this.value)" title="Click to assign or change workplace site">
                   ${siteOptions}
                 </select>
                 ${isUnassigned ? '<span class="badge-unassigned-tag"><i class="fa-solid fa-clock"></i> Assign</span>' : ''}
@@ -419,13 +419,18 @@ const AdminController = {
     }
   },
 
+  openInspectionModal(recordId) {
+    const r = (this.attendanceRecords || []).find(rec => rec.id === recordId);
+    if (r) openMapInspectionModal(r);
+  },
+
   openAuditSnapshot(recordId) {
     const r = (this.attendanceRecords || []).find(rec => rec.id === recordId);
     if (!r) return;
     const timeStr = formatDisplayTime(r.server_timestamp);
-    const conf = r.biometric_confidence ? `${r.biometric_confidence}%` : '98.5%';
-    if (typeof window.viewAuditPhoto === 'function') {
-      window.viewAuditPhoto(
+    const conf = r.biometric_confidence ? `${r.biometric_confidence}%` : 'High Confidence';
+    if (typeof viewAuditPhoto === 'function') {
+      viewAuditPhoto(
         r.face_snapshot || '',
         r.employee_profile_photo || '',
         conf,
@@ -437,7 +442,7 @@ const AdminController = {
     }
   },
 
-  async assignEmployeeSite(id, locationId, name) {
+  async assignEmployeeSite(id, locationId) {
     try {
       setLoading(true, 'Updating workplace site...');
       const assigned_location_id = locationId ? parseInt(locationId) : null;
@@ -450,7 +455,8 @@ const AdminController = {
         const siteName = locationId 
           ? (this.locations.find(l => l.id == locationId)?.name || 'Designated Site')
           : 'All Sites / Floating';
-        showToast(`✓ Assigned "${siteName}" to ${name || 'employee'}!`, 'success');
+        const empName = this.employees?.find(e => e.id === id)?.name || 'employee';
+        showToast(`✓ Assigned "${siteName}" to ${empName}!`, 'success');
         this.loadEmployees();
       }
     } catch (err) {
@@ -477,7 +483,7 @@ const AdminController = {
       let options = `<option value="">🏢 Unassigned / Floating (All Sites)</option>`;
       options += (this.locations || []).map(loc => `
         <option value="${loc.id}" ${emp.assigned_location_id === loc.id ? 'selected' : ''}>
-          📍 ${loc.name} (${loc.radius_meters}m radius)
+          📍 ${escapeHtml(loc.name)} (${loc.radius_meters}m radius)
         </option>
       `).join('');
       siteSelect.innerHTML = options;
@@ -813,14 +819,14 @@ function openMapInspectionModal(record) {
 
   detailsEl.innerHTML = `
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
-      <div><strong>Employee:</strong> ${record.employee_name} (${record.employee_code})</div>
-      <div><strong>Department:</strong> ${record.department || 'General'}</div>
-      <div><strong>Timestamp (Verified):</strong> ${record.work_date} ${timeStr}</div>
-      <div><strong>Verification Status:</strong> <span class="badge-status ${record.status === 'PRESENT' ? 'status-present' : record.status === 'LATE' ? 'status-late' : 'status-rejected'}">${record.status}</span></div>
+      <div><strong>Employee:</strong> ${escapeHtml(record.employee_name)} (${escapeHtml(record.employee_code)})</div>
+      <div><strong>Department:</strong> ${escapeHtml(record.department || 'General')}</div>
+      <div><strong>Timestamp (Verified):</strong> ${escapeHtml(record.work_date)} ${escapeHtml(timeStr)}</div>
+      <div><strong>Verification Status:</strong> <span class="badge-status ${record.status === 'PRESENT' ? 'status-present' : record.status === 'LATE' ? 'status-late' : 'status-rejected'}">${escapeHtml(record.status)}</span></div>
       <div><strong>GPS Accuracy:</strong> ±${Math.round(record.gps_accuracy)} meters</div>
-      <div><strong>Distance from Site Center:</strong> ${record.distance_meters} meters (Allowed: ${record.allowed_radius || 100}m)</div>
+      <div><strong>Distance from Site Center:</strong> ${escapeHtml(record.distance_meters)} meters (Allowed: ${escapeHtml(record.allowed_radius || 100)}m)</div>
       <div style="grid-column: span 2;"><strong>Actual GPS Coordinates:</strong> Latitude ${record.latitude.toFixed(6)}, Longitude ${record.longitude.toFixed(6)}</div>
-      <div style="grid-column: span 2;"><strong>Audit Notes:</strong> ${record.notes || 'Normal check-in log'}</div>
+      <div style="grid-column: span 2;"><strong>Audit Notes:</strong> ${escapeHtml(record.notes || 'Normal check-in log')}</div>
     </div>
   `;
 
@@ -862,7 +868,7 @@ function openMapInspectionModal(record) {
 
     L.marker([record.latitude, record.longitude], { icon: pinIcon })
       .addTo(AdminController.inspectionMap)
-      .bindPopup(`<b>${record.employee_name} Check-In</b><br>${record.status} (${record.distance_meters}m away)`)
+      .bindPopup(`<b>${escapeHtml(record.employee_name)} Check-In</b><br>${escapeHtml(record.status)} (${record.distance_meters}m away)`)
       .openPopup();
   }, 200);
 }

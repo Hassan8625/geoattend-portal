@@ -5,6 +5,9 @@ yarn-error.log*
 .env
 .DS_Store
 Thumbs.db
+data/
+*.db
 *.db-shm
 *.db-wal
 cloudflared.exe
+

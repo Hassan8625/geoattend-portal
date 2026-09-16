@@ -1,6 +1,7 @@
 const express = require('express');
 const path = require('path');
 const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 require('dotenv').config();
 
 // Initialize Database & Tables
@@ -15,7 +16,14 @@ const settingsRoutes = require('./routes/settingsRoutes');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
+// Trust first proxy hop (Render, Replit, Nginx, Cloudflare) for accurate client IP rate limiting
+app.set('trust proxy', 1);
+
+// Security & Parsing Middleware
+app.use(helmet({
+  contentSecurityPolicy: false, // Disabled for external CDN assets (Leaflet, FontAwesome)
+  crossOriginEmbedderPolicy: false
+}));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());

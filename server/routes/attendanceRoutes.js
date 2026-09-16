@@ -1,7 +1,8 @@
 const express = require('express');
 const db = require('../db');
 const { protect } = require('../auth');
-const { haversineDistance, validateCoordinates, getLocalDateString } = require('../geo');
+const { haversineDistance, validateCoordinates, getLocalDateString, getCompanyLocalDateString } = require('../geo');
+const { matchDescriptors, isValidDescriptor } = require('../biometrics');
 
 const router = express.Router();
 
@@ -52,8 +53,7 @@ router.post('/check-in', protect, async (req, res) => {
       location_id, 
       device_info, 
       notes,
-      biometric_verified,
-      biometric_confidence,
+      face_descriptor,
       face_snapshot
     } = req.body || {};
 
@@ -70,30 +70,23 @@ router.post('/check-in', protect, async (req, res) => {
       });
     }
 
-    // 2. Determine target geofence location
+    // 2. Determine target geofence location: strictly enforce employee's assigned location
     let targetLocation = null;
-    if (location_id) {
+    if (req.user.role === 'ADMIN' && location_id) {
       targetLocation = await db.queryOne(`SELECT * FROM locations WHERE id = ? AND is_active = 1`, [parseInt(location_id)]);
-    }
-
-    // If no specific location given or not found, use user's assigned location or nearest active location
-    if (!targetLocation) {
-      if (req.user.assigned_location_id) {
-        targetLocation = await db.queryOne(`SELECT * FROM locations WHERE id = ? AND is_active = 1`, [req.user.assigned_location_id]);
-      }
+    } else if (req.user.assigned_location_id) {
+      targetLocation = await db.queryOne(`SELECT * FROM locations WHERE id = ? AND is_active = 1`, [req.user.assigned_location_id]);
     }
 
     if (!targetLocation) {
-      // Find the nearest active location among all active branches
       const allActiveLocations = await db.query(`SELECT * FROM locations WHERE is_active = 1`);
       if (allActiveLocations.length === 0) {
         return res.status(400).json({
           success: false,
-          message: 'No active office or site locations are configured in the system. Please contact the CEO / Admin.'
+          message: 'No active workplace sites are configured in the system. Please contact your administrator.'
         });
       }
 
-      // Sort by distance to find closest location
       allActiveLocations.sort((a, b) => {
         const distA = haversineDistance(lat, lng, a.latitude, a.longitude);
         const distB = haversineDistance(lat, lng, b.latitude, b.longitude);
@@ -108,7 +101,7 @@ router.post('/check-in', protect, async (req, res) => {
 
     const now = new Date();
     const serverTimestamp = now.toISOString();
-    const workDate = getLocalDateString(now);
+    const workDate = await getCompanyLocalDateString(db, now);
 
     // 4. Check if employee already marked check-in for today
     const existingCheckIn = await db.queryOne(`
@@ -117,10 +110,13 @@ router.post('/check-in', protect, async (req, res) => {
     `, [req.user.id, workDate]);
 
     if (existingCheckIn) {
+      const tsRaw = existingCheckIn.server_timestamp;
+      const tsStr = (tsRaw instanceof Date) ? tsRaw.toISOString() : String(tsRaw || '');
+      const timeStr = tsStr.includes('T') ? tsStr.split('T')[1].substring(0, 5) : tsStr.substring(11, 16);
       return res.status(400).json({
         success: false,
         alreadyCheckedIn: true,
-        message: `You have already marked your attendance for today (${existingCheckIn.server_timestamp.split('T')[1].substring(0, 5)}).`,
+        message: `You have already marked your attendance for today (${timeStr}).`,
         record: existingCheckIn
       });
     }
@@ -160,8 +156,40 @@ router.post('/check-in', protect, async (req, res) => {
     const late = await isLateCheckIn(now);
     const finalStatus = late ? 'LATE' : 'PRESENT';
 
-    const isBioVerified = biometric_verified ? 1 : 0;
-    const bioConfidence = biometric_confidence !== undefined ? parseFloat(biometric_confidence) : null;
+    // 7. Server-Side Biometric Verification
+    let isBioVerified = 0;
+    let bioConfidence = null;
+
+    const userBio = await db.queryOne(`SELECT face_enrolled, face_descriptor FROM users WHERE id = ?`, [req.user.id]);
+    if (userBio && userBio.face_enrolled && userBio.face_descriptor) {
+      let enrolledVec = null;
+      try {
+        enrolledVec = typeof userBio.face_descriptor === 'string' ? JSON.parse(userBio.face_descriptor) : userBio.face_descriptor;
+      } catch (_) {}
+
+      if (enrolledVec && isValidDescriptor(enrolledVec)) {
+        if (!face_descriptor || !isValidDescriptor(face_descriptor)) {
+          return res.status(400).json({
+            success: false,
+            verified: false,
+            message: 'Facial biometric verification required. Please scan your face to complete check-in.'
+          });
+        }
+
+        const matchResult = matchDescriptors(face_descriptor, enrolledVec);
+        if (!matchResult.isMatch) {
+          return res.status(400).json({
+            success: false,
+            verified: false,
+            message: `Facial biometric mismatch (Match: ${matchResult.confidence}%). Verification rejected.`
+          });
+        }
+
+        isBioVerified = 1;
+        bioConfidence = matchResult.confidence;
+      }
+    }
+
     const faceImg = face_snapshot && typeof face_snapshot === 'string' ? face_snapshot : null;
 
     const result = await db.execute(`
@@ -208,6 +236,12 @@ router.post('/check-in', protect, async (req, res) => {
       record: savedRecord
     });
   } catch (err) {
+    if (err.message && (err.message.includes('UNIQUE constraint') || err.message.includes('duplicate key') || err.code === '23505')) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already marked attendance for today.'
+      });
+    }
     console.error('Check-in error:', err);
     res.status(500).json({ success: false, message: 'Server error processing check-in.' });
   }
@@ -232,7 +266,7 @@ router.post('/check-out', protect, async (req, res) => {
 
     const now = new Date();
     const serverTimestamp = now.toISOString();
-    const workDate = getLocalDateString(now);
+    const workDate = await getCompanyLocalDateString(db, now);
 
     // Check if user has checked in today
     const existingCheckIn = await db.queryOne(`
@@ -247,10 +281,10 @@ router.post('/check-out', protect, async (req, res) => {
       });
     }
 
-    // Check if already checked out
+    // Check if already checked out successfully
     const existingCheckOut = await db.queryOne(`
       SELECT * FROM attendance_records 
-      WHERE user_id = ? AND work_date = ? AND check_type = 'CHECK_OUT'
+      WHERE user_id = ? AND work_date = ? AND check_type = 'CHECK_OUT' AND status = 'PRESENT'
     `, [req.user.id, workDate]);
 
     if (existingCheckOut) {
@@ -260,13 +294,63 @@ router.post('/check-out', protect, async (req, res) => {
       });
     }
 
-    const targetLocation = (await db.queryOne(`SELECT * FROM locations WHERE id = ?`, [existingCheckIn.location_id])) || {
-      latitude: lat,
-      longitude: lng,
-      radius_meters: 100
-    };
+    let targetLocation = null;
+    if (existingCheckIn.location_id) {
+      targetLocation = await db.queryOne(`SELECT * FROM locations WHERE id = ?`, [existingCheckIn.location_id]);
+    }
+    if (!targetLocation && req.user.assigned_location_id) {
+      targetLocation = await db.queryOne(`SELECT * FROM locations WHERE id = ? AND is_active = 1`, [req.user.assigned_location_id]);
+    }
+    if (!targetLocation) {
+      const allActive = await db.query(`SELECT * FROM locations WHERE is_active = 1`);
+      if (allActive.length > 0) {
+        allActive.sort((a, b) => {
+          const distA = haversineDistance(lat, lng, a.latitude, a.longitude);
+          const distB = haversineDistance(lat, lng, b.latitude, b.longitude);
+          return distA - distB;
+        });
+        targetLocation = allActive[0];
+      }
+    }
+
+    if (!targetLocation) {
+      return res.status(400).json({
+        success: false,
+        message: 'No active workplace location found to verify check-out geofence.'
+      });
+    }
 
     const distanceMeters = haversineDistance(lat, lng, targetLocation.latitude, targetLocation.longitude);
+    const isInsideGeofence = distanceMeters <= targetLocation.radius_meters;
+
+    if (!isInsideGeofence) {
+      await db.execute(`
+        INSERT INTO attendance_records 
+        (user_id, location_id, check_type, latitude, longitude, gps_accuracy, distance_meters, status, server_timestamp, work_date, device_info, notes)
+        VALUES (?, ?, 'CHECK_OUT', ?, ?, ?, ?, 'OUT_OF_BOUNDS_REJECTED', ?, ?, ?, ?)
+      `, [
+        req.user.id,
+        existingCheckIn.location_id,
+        lat,
+        lng,
+        accuracy,
+        distanceMeters,
+        serverTimestamp,
+        workDate,
+        device_info || req.headers['user-agent'],
+        `Check-out rejected: ${distanceMeters}m away (Allowed: ${targetLocation.radius_meters}m)`
+      ]);
+
+      return res.status(400).json({
+        success: false,
+        verified: false,
+        status: 'OUT_OF_BOUNDS_REJECTED',
+        distanceMeters,
+        allowedRadius: targetLocation.radius_meters,
+        targetLocationName: targetLocation.name,
+        message: `Check-out failed: You are ${distanceMeters}m away from "${targetLocation.name}". Allowed radius is ${targetLocation.radius_meters}m.`
+      });
+    }
 
     await db.execute(`
       INSERT INTO attendance_records 
@@ -291,6 +375,12 @@ router.post('/check-out', protect, async (req, res) => {
       timestamp: serverTimestamp
     });
   } catch (err) {
+    if (err.message && (err.message.includes('UNIQUE constraint') || err.message.includes('duplicate key') || err.code === '23505')) {
+      return res.status(400).json({
+        success: false,
+        message: 'You have already checked out for today.'
+      });
+    }
     console.error('Check-out error:', err);
     res.status(500).json({ success: false, message: 'Server error processing check-out.' });
   }
@@ -303,7 +393,7 @@ router.post('/check-out', protect, async (req, res) => {
  */
 router.get('/today-status', protect, async (req, res) => {
   try {
-    const today = getLocalDateString(new Date());
+    const today = await getCompanyLocalDateString(db, new Date());
 
     const checkIn = await db.queryOne(`
       SELECT a.*, l.name as location_name 

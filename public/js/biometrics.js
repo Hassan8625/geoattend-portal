@@ -203,16 +203,13 @@ const Biometrics = {
     const distance = this.computeEuclideanDistance(liveDescriptor, enrolledDescriptor);
     const isMatch = distance <= this.LIVENESS_CONFIG.MATCH_DISTANCE_THRESHOLD;
     
-    // Scale distance to a 0-100% confidence score
-    // distance 0.30 -> ~95%
-    // distance 0.55 -> ~80%
-    // distance > 0.7 -> 0%
-    const confidence = Math.max(0, Math.min(99.9, parseFloat(((1.0 - (distance / 0.75)) * 100).toFixed(1))));
+    // Real linear similarity conversion (distance 0 -> 100%, distance >= 0.85 -> 0%)
+    const confidence = Math.max(0, Math.min(99.9, parseFloat((Math.max(0, 1.0 - (distance / 0.85)) * 100).toFixed(1))));
 
     return {
       isMatch,
       distance: parseFloat(distance.toFixed(3)),
-      confidence: isMatch ? Math.max(78.5, confidence) : Math.min(50, confidence)
+      confidence
     };
   },
 
@@ -402,14 +399,14 @@ const Biometrics = {
 
         const liveDescriptor = Array.from(detection.descriptor);
 
-        if (enrolledDescriptor && enrolledDescriptor.length === 128) {
+        // If enrolledDescriptor is present as a 128-D vector, pre-match client side:
+        if (Array.isArray(enrolledDescriptor) && enrolledDescriptor.length === 128) {
           const match = this.matchDescriptors(liveDescriptor, enrolledDescriptor);
           bestMatchResult = match;
 
           if (match.isMatch) {
             consecutiveMatchFrames++;
             if (consecutiveMatchFrames >= 2) {
-              // Verified!
               this.isScanning = false;
               const snapshot = this.captureSnapshot(videoElement);
 
@@ -424,45 +421,42 @@ const Biometrics = {
               return;
             }
           } else {
-            consecutiveMatchFrames++;
-            // If in testing mode or after 10 mismatch checks, allow user verification with live face
-            if (consecutiveMatchFrames >= 8) {
-              this.isScanning = false;
-              const snapshot = this.captureSnapshot(videoElement);
-              this.stopCamera();
-              onComplete({
-                verified: true,
-                confidence: 96.5,
-                distance: 0.22,
-                snapshot,
-                descriptor: liveDescriptor,
-                autoEnrolled: true
-              });
-              return;
-            }
-
             onProgress({
               phase: 'MISMATCH',
               step: 3,
-              message: `Face mismatch (${match.confidence}% match). Hold still or re-enroll face.`,
+              message: `Face mismatch (${match.confidence}% match). Face does not match registered profile.`,
               isFaceDetected: true,
               confidence: match.confidence
             });
           }
-        } else {
-          // If employee is not yet enrolled, liveness verification alone confirms genuine presence!
-          this.isScanning = false;
-          const snapshot = this.captureSnapshot(videoElement);
-          this.stopCamera();
+        } else if (enrolledDescriptor === true || (typeof enrolledDescriptor === 'object' && enrolledDescriptor && enrolledDescriptor.face_enrolled)) {
+          // Zero-trust server-side verification mode: user is confirmed enrolled.
+          // Capture snapshot and live descriptor for server-side Euclidean distance matching.
+          consecutiveMatchFrames++;
+          if (consecutiveMatchFrames >= 2) {
+            this.isScanning = false;
+            const snapshot = this.captureSnapshot(videoElement);
 
-          onComplete({
-            verified: true,
-            confidence: 98.7,
-            distance: 0.12,
-            snapshot,
-            descriptor: liveDescriptor,
-            firstTimePass: true
-          });
+            this.stopCamera();
+            onComplete({
+              verified: true,
+              confidence: 95.0,
+              snapshot,
+              descriptor: liveDescriptor
+            });
+            return;
+          }
+        } else {
+          // If employee is not yet enrolled, prompt enrollment via administrator
+          this.isScanning = false;
+          this.stopCamera();
+          showToast('No facial biometric profile enrolled. Please contact your administrator for initial enrollment.', 'warning');
+          if (onComplete) {
+            onComplete({
+              verified: false,
+              message: 'Face not enrolled. Administrator setup required.'
+            });
+          }
           return;
         }
 
